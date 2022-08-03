@@ -1,0 +1,154 @@
+version: '3'
+
+dotenv: [.env]
+
+tasks:
+  phoenix:download:
+    desc: Download the RWTH-PHOENIX-Weather 2014 Continuous Sign Language Recognition Dataset.
+    preconditions:
+      - sh: "[[ -d {{.PHOENIX_DIR}} ]]"
+        msg: Specify an existing PHOENIX_DIR in the .env file.
+    vars:
+      NUM_CONNECTIONS: 32
+    cmds:
+      - cmd: axel -a -n {{.NUM_CONNECTIONS}}
+              --output={{.PHOENIX_DIR}}/phoenix-2014-T.v3.tar.gz
+              https://www-i6.informatik.rwth-aachen.de/ftp/pub/rwth-phoenix/2016/phoenix-2014-T.v3.tar.gz
+    status:
+      - test $(stat -c %s {{.PHOENIX_DIR}}/phoenix-2014-T.v3.tar.gz) -eq 41699758035
+    generates:
+      - "{{.PHOENIX_DIR}}/phoenix-2014-T.v3.tar.gz"
+
+  phoenix:extract:
+    desc: Extract the Phoenix dataset from the tar.gz after download.
+    preconditions:
+      - sh: test $(stat -c %s {{.PHOENIX_DIR}}/phoenix-2014-T.v3.tar.gz) -eq 41699758035
+        msg: The tar.gz file does not exist or is not correct, redownload it ({{.PHOENIX_DIR}}/phoenix-2014-T.v3.tar.gz).
+    cmds:
+      - cmd: pv {{.PHOENIX_DIR}}/phoenix-2014-T.v3.tar.gz | tar -x -I pigz -C {{.RAW_DATA_ROOT}}/Phoenix/
+    status:
+      - test -d {{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/
+      - test $(find {{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/PHOENIX-2014-T/features/fullFrame-210x260px/ -name "*.png" -type f | wc -l) -eq 947756
+    generates:
+      - "{{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/"
+
+  phoenix:convert2video:
+    desc: Convert the Phoenix dataset to video format.
+    preconditions:
+      - sh: test -d {{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/
+        msg: The uncompressed Phoenix folder does not exist.
+    vars:
+      NUM_JOBS: 32
+    cmds:
+      - cmd: rm {{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/PHOENIX-2014-T/features/fullFrame-210x260px/*/*.mp4
+      - cmd: find {{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/PHOENIX-2014-T/features/fullFrame-210x260px/*/* -type d |
+             parallel -j {{.NUM_JOBS}} --bar
+             ffmpeg -framerate 25  -i {}/images%04d.png -c:v libx264 -crf 0 -loglevel warning {}.mp4
+    status:
+      - test $(find {{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/PHOENIX-2014-T/features/fullFrame-210x260px/*/ -name "*.mp4" -type f | wc -l) -eq 8257
+    generates:
+      - "{{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/PHOENIX-2014-T/features/fullFrame-210x260px/*/*.mp4"
+
+  phoenix:extract_mediapipe:
+    desc: Extract MediaPipe poses from the Phoenix dataset.
+    preconditions:
+      - sh: test $(find {{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/PHOENIX-2014-T/features/fullFrame-210x260px/*/ -name "*.mp4" -type f | wc -l) -eq 8257
+        msg: The videos have not been generated yet or are incomplete. Regenerate them.
+    vars:
+      NUM_JOBS: 16
+      FPS: 25
+    cmds:
+      - cmd: |
+              if [[ -d {{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/PHOENIX-2014-T/features/mediapipe ]]; then
+                rm -r {{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/PHOENIX-2014-T/features/mediapipe
+              fi
+        silent: True
+      - cmd: find {{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/PHOENIX-2014-T/features/fullFrame-210x260px/*/ -name "*.mp4" -type f |
+             parallel -j {{.NUM_JOBS}} --bar \
+             'split=$(basename $(dirname {}));
+             id=$(basename {} .mp4);
+             pose_file="{{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/PHOENIX-2014-T/features/mediapipe/${split}/${id}.pose";
+             python ./scripts/extract_mediapipe.py --video-file {} --poses-file ${pose_file} --fps {{.FPS}} 2> /dev/null'
+    status:
+      - test $(find {{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/PHOENIX-2014-T/features/mediapipe/*/ -name "*.pose" -type f | wc -l) -eq 8257
+    generates:
+      - "{{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/PHOENIX-2014-T/features/mediapipe/*/*.pose"
+
+  phoenix:generate_tsv:
+    desc: Generate TSV files for the Phoenix dataset.
+    preconditions:
+      - sh: "[[ -d {{.FAIRSEQ_ROOT}} ]]"
+        msg: Specify the FAIRSEQ_ROOT in the .env file.
+      - sh: "[ ! -z {{.DATA_DIR}} ]"
+        msg: Specify the DATA_DIR in the .env file.
+      - sh: test $(find {{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/PHOENIX-2014-T/features/mediapipe/*/ -name "*.pose" -type f | wc -l) -eq 8257
+        msg: Mediapipe features have not been generated yet or are incomplete. Run the extraction.
+    cmds:
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
+                --dataset phoenix \
+                --path {{.PHOENIX_DIR}} \
+                --tsv-out {{.DATA_DIR}}/phoenix.mediapipe.train.tsv \
+                --type mediapipe \
+                --split train \
+                --signs-lang dgs \
+                --translation-lang de
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
+                --dataset phoenix \
+                --path {{.PHOENIX_DIR}} \
+                --tsv-out {{.DATA_DIR}}/phoenix.mediapipe.dev.tsv \
+                --type mediapipe \
+                --split dev \
+                --signs-lang dgs \
+                --translation-lang de
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
+                --dataset phoenix \
+                --path {{.PHOENIX_DIR}} \
+                --tsv-out {{.DATA_DIR}}/phoenix.mediapipe.test.tsv \
+                --type mediapipe \
+                --split test \
+                --signs-lang dgs \
+                --translation-lang de
+    status:
+      - test $(md5sum {{.DATA_DIR}}/phoenix.mediapipe.train.tsv | cut -d ' ' -f 1) = "8764b8177865a59b580f3f48c5ee9a3d"
+      - test $(md5sum {{.DATA_DIR}}/phoenix.mediapipe.dev.tsv | cut -d ' ' -f 1) = "47aa7b71e79d17aa3b3075ed230712f1"
+      - test $(md5sum {{.DATA_DIR}}/phoenix.mediapipe.test.tsv | cut -d ' ' -f 1) = "f186de8f314672f0bf3c4c2753f9fe5e"
+    generates:
+      - "{{.DATA_DIR}}/phoenix.mediapipe.train.tsv"
+      - "{{.DATA_DIR}}/phoenix.mediapipe.dev.tsv"
+      - "{{.DATA_DIR}}/phoenix.mediapipe.test.tsv"
+
+  phoenix:train_sentencepiece:
+    desc: Train SentencePiece model for the Phoenix dataset.
+    preconditions:
+      - sh: "[[ -d {{.FAIRSEQ_ROOT}} ]]"
+        msg: Specify the FAIRSEQ_ROOT in the .env file.
+      - sh: "[ ! -z {{.DATA_DIR}} ]"
+        msg: Specify the DATA_DIR in the .env file.
+      - sh: "[ ! -z {{.VOCAB_SIZE}} ]"
+        msg: Specify a VOCAB_SIZE.
+      - sh: |
+            test $(md5sum {{.DATA_DIR}}/phoenix.mediapipe.train.tsv | cut -d ' ' -f 1) = "8764b8177865a59b580f3f48c5ee9a3d"
+            test $(md5sum {{.DATA_DIR}}/phoenix.mediapipe.dev.tsv | cut -d ' ' -f 1) = "47aa7b71e79d17aa3b3075ed230712f1"
+            test $(md5sum {{.DATA_DIR}}/phoenix.mediapipe.test.tsv | cut -d ' ' -f 1) = "f186de8f314672f0bf3c4c2753f9fe5e"
+        msg: TSV files have not been generated yet or are incomplete. Prepare them before running this.
+    cmds:
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/train_spm.py \
+                --tsv-file {{.DATA_DIR}}/phoenix.mediapipe.train.tsv \
+                --spm-prefix {{.DATA_DIR}}/phoenix.unigram{{.VOCAB_SIZE}} \
+                --vocab-size {{.VOCAB_SIZE}} \
+                --vocab-type unigram
+    status:
+      - test $(cat {{.DATA_DIR}}/phoenix.unigram{{.VOCAB_SIZE}}.vocab | wc -l) -eq {{.VOCAB_SIZE}}
+      - test $(cat {{.DATA_DIR}}/phoenix.unigram{{.VOCAB_SIZE}}.txt | wc -l) -eq $(({{.VOCAB_SIZE}}-4))
+    generates:
+      - "{{.DATA_DIR}}/phoenix.unigram{{.VOCAB_SIZE}}.model"
+      - "{{.DATA_DIR}}/phoenix.unigram{{.VOCAB_SIZE}}.txt"
+      - "{{.DATA_DIR}}/phoenix.unigram{{.VOCAB_SIZE}}.vocab"
