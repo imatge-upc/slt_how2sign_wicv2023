@@ -435,8 +435,8 @@ tasks:
         msg: Specify the DATA_DIR in the .env file.
       - sh: test $(find {{.WMTSLT22_DIR}}/focusnews/mediapipe/ -name "*.pose" -type f | wc -l) -eq 197
         msg: Mediapipe features for focusnews have not been generated yet or are incomplete. Run the extraction.
-      # - sh: test $(find {{.WMTSLT22_DIR}}/srf/parallel/mediapipe/ -name "*.pose" -type f | wc -l) -eq 29
-      #   msg: Mediapipe features for SRF have not been generated yet or are incomplete. Run the extraction.
+      - sh: test $(find {{.WMTSLT22_DIR}}/srf/parallel/mediapipe/ -name "*.pose" -type f | wc -l) -eq 29
+        msg: Mediapipe features for SRF have not been generated yet or are incomplete. Run the extraction.
       - sh: test $(find {{.WMTSLT22_DIR}}/dev/*/mediapipe/ -name "*.pose" -type f | wc -l) -eq 840
         msg: Mediapipe features for dev have not been generated yet or are incomplete. Run the extraction.
       - sh: test $(find {{.WMTSLT22_DIR}}/test/dsgs-de/mediapipe/ -name "*.pose" -type f | wc -l) -eq 488
@@ -452,26 +452,26 @@ tasks:
                 --split focusnews \
                 --signs-lang dsgs \
                 --translation-lang de
-      # - cmd: |
-      #         PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
-      #         python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
-      #           --dataset wmt_slt22 \
-      #           --path {{.WMTSLT22_DIR}} \
-      #           --tsv-out {{.DATA_DIR}}/wmtslt22.mediapipe.train_srf.tsv \
-      #           --type mediapipe \
-      #           --split srf_parallel \
-      #           --signs-lang dsgs \
-      #           --translation-lang de
-      # - cmd: |
-      #         PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
-      #         python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
-      #           --dataset wmt_slt22 \
-      #           --path {{.WMTSLT22_DIR}} \
-      #           --tsv-out {{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnewsandsrf.tsv \
-      #           --type mediapipe \
-      #           --split focusnews srf_parallel \
-      #           --signs-lang dsgs \
-      #           --translation-lang de
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
+                --dataset wmt_slt22 \
+                --path {{.WMTSLT22_DIR}} \
+                --tsv-out {{.DATA_DIR}}/wmtslt22.mediapipe.train_srf.tsv \
+                --type mediapipe \
+                --split srf_parallel \
+                --signs-lang dsgs \
+                --translation-lang de
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
+                --dataset wmt_slt22 \
+                --path {{.WMTSLT22_DIR}} \
+                --tsv-out {{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnewsandsrf.tsv \
+                --type mediapipe \
+                --split focusnews srf_parallel \
+                --signs-lang dsgs \
+                --translation-lang de
       - cmd: |
               PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
               python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
@@ -519,8 +519,8 @@ tasks:
                 --translation-lang de
     status:
       - test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnews.tsv | cut -d ' ' -f 1) = "aae212d4d234afdc98bb3646e217b9c6"
-      # - test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.train_srf.tsv | cut -d ' ' -f 1) = "???"
-      # - test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnewsandsrf.tsv | cut -d ' ' -f 1) = "???"
+      - test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.train_srf.tsv | cut -d ' ' -f 1) = "7e629c86169f29d570cd04c80cd08c48"
+      - test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnewsandsrf.tsv | cut -d ' ' -f 1) = "1a52cf51252936514deee943934ad10a"
       - test $(md5sum {{.DATA_DIR}}/wmtslt22.train_srfmonolingual.tsv | cut -d ' ' -f 1) = "2ed88554bb111625af157a736a7f2e65"
       - test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.dev_dsgs-de.tsv | cut -d ' ' -f 1) = "cd4a8b017f371e34ed41fa16258fc2bb"
       - test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.dev_de-dsgs.tsv | cut -d ' ' -f 1) = "87a9b15d060f3e183e2ed4684a2fca9d"
@@ -528,8 +528,8 @@ tasks:
       - test $(md5sum {{.DATA_DIR}}/wmtslt22.test_de-dsgs.tsv | cut -d ' ' -f 1) = "53d11cdd7657acae2b454964b0da85c2"
     generates:
       - "{{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnews.tsv"
-      # - "{{.DATA_DIR}}/wmtslt22.mediapipe.train_srf.tsv"
-      # - "{{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnewsandsrf.tsv"
+      - "{{.DATA_DIR}}/wmtslt22.mediapipe.train_srf.tsv"
+      - "{{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnewsandsrf.tsv"
       - "{{.DATA_DIR}}/wmtslt22.train_srfmonolingual.tsv"
       - "{{.DATA_DIR}}/wmtslt22.mediapipe.dev_dsgs-de.tsv"
       - "{{.DATA_DIR}}/wmtslt22.mediapipe.dev_de-dsgs.tsv"
@@ -547,8 +547,8 @@ tasks:
         msg: Specify a VOCAB_SIZE.
       - sh: |
             test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnews.tsv | cut -d ' ' -f 1) = "aae212d4d234afdc98bb3646e217b9c6"
-            # test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.train_srf.tsv | cut -d ' ' -f 1) = "???"
-            # test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnewsandsrf.tsv | cut -d ' ' -f 1) = "???"
+            test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.train_srf.tsv | cut -d ' ' -f 1) = "7e629c86169f29d570cd04c80cd08c48"
+            test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnewsandsrf.tsv | cut -d ' ' -f 1) = "1a52cf51252936514deee943934ad10a"
             test $(md5sum {{.DATA_DIR}}/wmtslt22.train_srfmonolingual.tsv | cut -d ' ' -f 1) = "2ed88554bb111625af157a736a7f2e65"
         msg: TSV files have not been generated yet or are incomplete. Prepare them before running this.
     cmds:
@@ -559,20 +559,20 @@ tasks:
                 --spm-prefix {{.DATA_DIR}}/wmtslt22.focusnews.unigram{{.VOCAB_SIZE}} \
                 --vocab-size {{.VOCAB_SIZE}} \
                 --vocab-type unigram
-      # - cmd: |
-      #         PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
-      #         python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/train_spm.py \
-      #           --tsv-file {{.DATA_DIR}}/wmtslt22.mediapipe.train_srf.tsv \
-      #           --spm-prefix {{.DATA_DIR}}/wmtslt22.srf.unigram{{.VOCAB_SIZE}} \
-      #           --vocab-size {{.VOCAB_SIZE}} \
-      #           --vocab-type unigram
-      # - cmd: |
-      #         PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
-      #         python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/train_spm.py \
-      #           --tsv-file {{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnewsandsrf.tsv \
-      #           --spm-prefix {{.DATA_DIR}}/wmtslt22.focusnewsandsrf.unigram{{.VOCAB_SIZE}} \
-      #           --vocab-size {{.VOCAB_SIZE}} \
-      #           --vocab-type unigram
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/train_spm.py \
+                --tsv-file {{.DATA_DIR}}/wmtslt22.mediapipe.train_srf.tsv \
+                --spm-prefix {{.DATA_DIR}}/wmtslt22.srf.unigram{{.VOCAB_SIZE}} \
+                --vocab-size {{.VOCAB_SIZE}} \
+                --vocab-type unigram
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/train_spm.py \
+                --tsv-file {{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnewsandsrf.tsv \
+                --spm-prefix {{.DATA_DIR}}/wmtslt22.focusnewsandsrf.unigram{{.VOCAB_SIZE}} \
+                --vocab-size {{.VOCAB_SIZE}} \
+                --vocab-type unigram
       - cmd: |
               PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
               python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/train_spm.py \
@@ -583,22 +583,22 @@ tasks:
     status:
       - test $(cat {{.DATA_DIR}}/wmtslt22.focusnews.unigram{{.VOCAB_SIZE}}.vocab | wc -l) -eq {{.VOCAB_SIZE}}
       - test $(cat {{.DATA_DIR}}/wmtslt22.focusnews.unigram{{.VOCAB_SIZE}}.txt | wc -l) -eq $(({{.VOCAB_SIZE}}-4))
-      # - test $(cat {{.DATA_DIR}}/wmtslt22.srf.unigram{{.VOCAB_SIZE}}.vocab | wc -l) -eq {{.VOCAB_SIZE}}
-      # - test $(cat {{.DATA_DIR}}/wmtslt22.srf.unigram{{.VOCAB_SIZE}}.txt | wc -l) -eq $(({{.VOCAB_SIZE}}-4))
-      # - test $(cat {{.DATA_DIR}}/wmtslt22.focusnewsandsrf.unigram{{.VOCAB_SIZE}}.vocab | wc -l) -eq {{.VOCAB_SIZE}}
-      # - test $(cat {{.DATA_DIR}}/wmtslt22.focusnewsandsrf.unigram{{.VOCAB_SIZE}}.txt | wc -l) -eq $(({{.VOCAB_SIZE}}-4))
+      - test $(cat {{.DATA_DIR}}/wmtslt22.srf.unigram{{.VOCAB_SIZE}}.vocab | wc -l) -eq {{.VOCAB_SIZE}}
+      - test $(cat {{.DATA_DIR}}/wmtslt22.srf.unigram{{.VOCAB_SIZE}}.txt | wc -l) -eq $(({{.VOCAB_SIZE}}-4))
+      - test $(cat {{.DATA_DIR}}/wmtslt22.focusnewsandsrf.unigram{{.VOCAB_SIZE}}.vocab | wc -l) -eq {{.VOCAB_SIZE}}
+      - test $(cat {{.DATA_DIR}}/wmtslt22.focusnewsandsrf.unigram{{.VOCAB_SIZE}}.txt | wc -l) -eq $(({{.VOCAB_SIZE}}-4))
       - test $(cat {{.DATA_DIR}}/wmtslt22.srfmonolingual.unigram{{.VOCAB_SIZE}}.vocab | wc -l) -eq {{.VOCAB_SIZE}}
       - test $(cat {{.DATA_DIR}}/wmtslt22.srfmonolingual.unigram{{.VOCAB_SIZE}}.txt | wc -l) -eq $(({{.VOCAB_SIZE}}-4))
     generates:
       - "{{.DATA_DIR}}/focusnews.unigram{{.VOCAB_SIZE}}.model"
       - "{{.DATA_DIR}}/focusnews.unigram{{.VOCAB_SIZE}}.txt"
       - "{{.DATA_DIR}}/focusnews.unigram{{.VOCAB_SIZE}}.vocab"
-      # - "{{.DATA_DIR}}/srf.unigram{{.VOCAB_SIZE}}.model"
-      # - "{{.DATA_DIR}}/srf.unigram{{.VOCAB_SIZE}}.txt"
-      # - "{{.DATA_DIR}}/srf.unigram{{.VOCAB_SIZE}}.vocab"
-      # - "{{.DATA_DIR}}/focusnewsandsrf.unigram{{.VOCAB_SIZE}}.model"
-      # - "{{.DATA_DIR}}/focusnewsandsrf.unigram{{.VOCAB_SIZE}}.txt"
-      # - "{{.DATA_DIR}}/focusnewsandsrf.unigram{{.VOCAB_SIZE}}.vocab"
+      - "{{.DATA_DIR}}/srf.unigram{{.VOCAB_SIZE}}.model"
+      - "{{.DATA_DIR}}/srf.unigram{{.VOCAB_SIZE}}.txt"
+      - "{{.DATA_DIR}}/srf.unigram{{.VOCAB_SIZE}}.vocab"
+      - "{{.DATA_DIR}}/focusnewsandsrf.unigram{{.VOCAB_SIZE}}.model"
+      - "{{.DATA_DIR}}/focusnewsandsrf.unigram{{.VOCAB_SIZE}}.txt"
+      - "{{.DATA_DIR}}/focusnewsandsrf.unigram{{.VOCAB_SIZE}}.vocab"
       - "{{.DATA_DIR}}/srfmonolingual.unigram{{.VOCAB_SIZE}}.model"
       - "{{.DATA_DIR}}/srfmonolingual.unigram{{.VOCAB_SIZE}}.txt"
       - "{{.DATA_DIR}}/srfmonolingual.unigram{{.VOCAB_SIZE}}.vocab"
