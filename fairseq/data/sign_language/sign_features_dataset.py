@@ -14,7 +14,6 @@ import mediapipe as mp
 from pose_format import Pose
 
 from fairseq.data import FairseqDataset
-from fairseq.data.text_compressor import TextCompressor, TextCompressionLevel
 
 logger = logging.getLogger(__name__)
 
