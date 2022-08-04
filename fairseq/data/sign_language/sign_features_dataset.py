@@ -75,7 +75,7 @@ class SignFeatsDataset(FairseqDataset):
                 self.feats_files.pop(self.ids.index(_id))
                 self.sizes.pop(self.ids.index(_id))
                 self.ids.remove(_id)
-                self.skipped_ids.append(self.text_compressor.decompress(_id))
+                self.skipped_ids.append(_id)
         logger.info(
             f"Skipped {len(self.skipped_ids)} sentences, that were too short or too long."
         )
