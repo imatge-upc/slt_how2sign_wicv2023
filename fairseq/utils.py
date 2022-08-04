@@ -553,6 +553,14 @@ def get_activation_fn(activation: str) -> Callable:
         return F.relu
     elif activation == "relu_squared":
         return relu_squared
+    elif activation_type == "relu6":
+        return F.relu6
+    elif activation_type == "prelu":
+        return F.prelu
+    elif activation_type == "selu":
+        return F.selu
+    elif activation_type == "celu":
+        return F.celu
     elif activation == "gelu":
         return gelu
     elif activation == "gelu_fast":
@@ -564,6 +572,16 @@ def get_activation_fn(activation: str) -> Callable:
         return gelu_accurate
     elif activation == "tanh":
         return torch.tanh
+    elif activation_type == "sigmoid":
+        return F.sigmoid
+    elif activation_type == "softplus":
+        return F.softplus
+    elif activation_type == "softshrink":
+        return F.softshrink
+    elif activation_type == "softsign":
+        return F.softsign
+    elif activation_type == "tanhshrink":
+        return F.tanhshrink
     elif activation == "linear":
         return lambda x: x
     elif activation == "swish":
