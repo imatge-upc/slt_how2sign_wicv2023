@@ -80,6 +80,9 @@ class Sign2TextTransformerConfig(FairseqDataclass):
     decoder_attention_heads: int = field(
         default=8, metadata={"help": "num decoder attention heads"}
     )
+    decoder_output_dim: int = field(
+        default=512, metadata={"help": "decoder output dimension (extra linear layer if different from decoder embed dim)"}
+    )
     decoder_normalize_before: bool = field(
         default=True, metadata={"help": "apply layernorm before each decoder block"}
     )
@@ -109,8 +112,8 @@ class Sign2TextTransformerModel(FairseqEncoderDecoderModel):
         super().__init__(encoder, decoder)
 
     @classmethod
-    def build_encoder(cls, cfg, feats_type, num_feats):
-        encoder = Sign2TextTransformerEncoder(cfg, feats_type, num_feats)
+    def build_encoder(cls, cfg, feats_type, feat_dim):
+        encoder = Sign2TextTransformerEncoder(cfg, feats_type, feat_dim)
         pretraining_path = getattr(cfg, "load_pretrained_encoder_from", None)
         if pretraining_path is not None:
             if not Path(pretraining_path).exists():
@@ -126,7 +129,7 @@ class Sign2TextTransformerModel(FairseqEncoderDecoderModel):
 
     @classmethod
     def build_decoder(cls, cfg, task, embed_tokens):
-        decoder = TransformerDecoderScriptable(cfg, task.target_dictionary, embed_tokens)
+        decoder = TransformerDecoder(cfg, task.target_dictionary, embed_tokens)
         pretraining_path = getattr(cfg, "load_pretrained_decoder_from", None)
         if pretraining_path is not None:
             if not Path(pretraining_path).exists():
@@ -144,8 +147,8 @@ class Sign2TextTransformerModel(FairseqEncoderDecoderModel):
     def build_model(cls, cfg, task):
         """Build a new model instance."""
 
-        dummy_sample = self.datasets.values()[0][0]
-        if isinstance(dummy_sample['source'], Pose)
+        dummy_sample = task.get_dummy_sample()
+        if isinstance(dummy_sample['source'], Pose):
             feats_type = SignFeatsType.mediapipe
             feat_dim = dummy_sample['source'].body.data.shape[-2]
 
@@ -157,7 +160,7 @@ class Sign2TextTransformerModel(FairseqEncoderDecoderModel):
         decoder_embed_tokens = build_embedding(
             task.target_dictionary, cfg.decoder_embed_dim
         )
-        encoder = cls.build_encoder(cfg, feats_type, num_feats)
+        encoder = cls.build_encoder(cfg, feats_type, feat_dim)
         decoder = cls.build_decoder(cfg, task, decoder_embed_tokens)
         return cls(encoder, decoder)
 
@@ -188,7 +191,7 @@ class Sign2TextTransformerEncoder(FairseqEncoder):
     """Sign-to-text Transformer encoder that consists of input subsampler and
     Transformer encoder."""
 
-    def __init__(self, cfg, feats_type: SignFeatsType, num_feats: int):
+    def __init__(self, cfg, feats_type: SignFeatsType, feat_dim: int):
         super().__init__(None)
 
         self.num_updates = 0
@@ -221,8 +224,8 @@ class Sign2TextTransformerEncoder(FairseqEncoder):
 
     def forward(self, src_tokens, encoder_padding_mask, return_all_hiddens=False):
         if self.feats_type == SignFeatsType.mediapipe:
-            src_tokens.view(src_tokens.shape[0], src_tokens.shape[1], -1)
-        x = self.feat_proj(src_tokens)
+            src_tokens = src_tokens.view(src_tokens.shape[0], src_tokens.shape[1], -1)
+        x = self.feat_proj(src_tokens).transpose(0, 1)
         x = self.embed_scale * x
 
         positions = self.embed_positions(encoder_padding_mask).transpose(0, 1)
@@ -289,24 +292,3 @@ class Sign2TextTransformerEncoder(FairseqEncoder):
     def set_num_updates(self, num_updates):
         super().set_num_updates(num_updates)
         self.num_updates = num_updates
-
-
-class TransformerDecoderScriptable(TransformerDecoder):
-    def extract_features(
-        self,
-        prev_output_tokens,
-        encoder_out: Optional[Dict[str, List[Tensor]]] = None,
-        incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]] = None,
-        full_context_alignment: bool = False,
-        alignment_layer: Optional[int] = None,
-        alignment_heads: Optional[int] = None,
-    ):
-        x, _ = self.extract_features_scriptable(
-            prev_output_tokens,
-            encoder_out,
-            incremental_state,
-            full_context_alignment,
-            alignment_layer,
-            alignment_heads,
-        )
-        return x, None

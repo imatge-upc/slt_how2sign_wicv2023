@@ -4,27 +4,26 @@
 
 import logging
 from pathlib import Path
-from argparse import Namespace
-from typing import Optional, Any
+from typing import Optional
 from dataclasses import dataclass, field
-import json
-import pdb
 
-import h5py
 import numpy as np
 import pandas as pd
 from omegaconf import MISSING, II
 
+from fairseq import metrics, utils
 from fairseq.data import AddTargetDataset, Dictionary
-from fairseq.data.encoders import SentencepieceConfig
-from fairseq.data.sign_language import SignFeatsDataset, SignFeatsType, NormType
-
+from fairseq.data.encoders.sentencepiece_bpe import SentencepieceConfig
+from fairseq.data.sign_language import SignFeatsDataset, NormType
+from fairseq.data.text_compressor import TextCompressor, TextCompressionLevel
 from fairseq.dataclass import FairseqDataclass
 from fairseq.dataclass.constants import ChoiceEnum
-
+from fairseq.dataclass.configs import GenerationConfig
+from fairseq.scoring import build_scorer
+from fairseq.scoring.wer import WerScorerConfig
+from fairseq.scoring.bleu import SacrebleuConfig
 from fairseq.tasks import FairseqTask, register_task
 
-from fairseq import metrics, search, utils
 
 EVAL_BLEU_ORDER = 4
 
@@ -38,7 +37,7 @@ class SignToTextConfig(FairseqDataclass):
         default=750, metadata={"help": "max number of tokens in the source sequence"}
     )
     min_source_positions: Optional[int] = field(
-        default=50, metadata={"help": "min number of tokens in the source sequence"}
+        default=25, metadata={"help": "min number of tokens in the source sequence"}
     )
     max_target_positions: Optional[int] = field(
         default=512, metadata={"help": "max number of tokens in the target sequence"}
@@ -54,6 +53,17 @@ class SignToTextConfig(FairseqDataclass):
     shuffle_dataset: bool = field(
         default=True,
         metadata={"help": "set True to shuffle the dataset between epochs"},
+    )
+    bpe: SentencepieceConfig = field(
+        default_factory=lambda: SentencepieceConfig("sentencepiece"),
+        metadata={"help": "BPE configuration"},
+    )
+    text_compression_level: ChoiceEnum([x.name for x in TextCompressionLevel]) = field(
+        default="none",
+        metadata={
+            "help": "compression level for texts (e.g. audio filenames, "
+            "target texts): none/low/high (default: none). "
+        },
     )
 
     # Reporting metrics during training
@@ -84,7 +94,6 @@ class SignToTextConfig(FairseqDataclass):
 
     # Inherit from other configs
     train_subset: str = II("dataset.train_subset")
-    bpe_sentencepiece_model: str = II("bpe.sentencepiece_model")
 
 
 @register_task("sign_to_text", dataclass=SignToTextConfig)
@@ -92,26 +101,25 @@ class SignToTextTask(FairseqTask):
     def __init__(self, cfg, tgt_dict):
         super().__init__(cfg)
         self.tgt_dict = tgt_dict
-        self.pre_tokenizer = self.build_tokenizer(cfg)
-        self.bpe_tokenizer = self.build_bpe(cfg)
+        self.bpe_tokenizer = self.build_bpe(cfg.bpe)
         self.scorers = []
         if self.cfg.eval_wer:
             self.scorers.append(
-                scoring.build_scorer(cfg.eval_wer_config, self.tgt_dict)
+                build_scorer(cfg.eval_wer_config, self.tgt_dict)
             )
         if self.cfg.eval_bleu:
             self.scorers.append(
-                scoring.build_scorer(cfg.eval_bleu_config, self.tgt_dict)
+                build_scorer(cfg.eval_bleu_config, self.tgt_dict)
             )
 
     @classmethod
     def setup_task(cls, cfg, **kwargs):
-        dict_path = Path(cfg.bpe_sentencepiece_model).with_suffix('.txt')
+        dict_path = Path(cfg.bpe.sentencepiece_model).with_suffix('.txt')
         if not dict_path.is_file():
             raise FileNotFoundError(f"Dict not found: {dict_path.as_posix()}")
         tgt_dict = Dictionary.load(dict_path.as_posix())
         logger.info(
-            f"dictionary size ({data_cfg.vocab_filename}): " f"{len(tgt_dict):,}"
+            f"dictionary size ({dict_path}): " f"{len(tgt_dict):,}"
         )
 
         if getattr(cfg, "train_subset", None) is not None:
@@ -141,13 +149,14 @@ class SignToTextTask(FairseqTask):
         task_cfg: FairseqDataclass = None,
         **kwargs
     ):
-    is_train_split = "train" in split
+        is_train_split = "train" in split
 
         root_dir = Path(self.cfg.data)
         assert root_dir.is_dir(), f"{root_dir} does not exist"
 
+        manifest_file = root_dir / f"{split}.tsv"
         self.datasets[split] = SignFeatsDataset.from_manifest_file(
-            manifest_file=root_dir / f"{split}.tsv",
+            manifest_file=manifest_file,
             normalization=self.cfg.normalization,
             data_augmentation=(self.cfg.data_augmentation and is_train_split),
             min_sample_size=self.cfg.min_source_positions,
@@ -155,10 +164,17 @@ class SignToTextTask(FairseqTask):
             shuffle=self.cfg.shuffle_dataset,
         )
 
+        if is_train_split:
+            self.datasets[split].filter_by_length(
+                self.cfg.min_source_positions,
+                self.cfg.max_source_positions,
+            )
         data = pd.read_csv(manifest_file, sep="\t")
+        text_compressor = TextCompressor(level=self.cfg.text_compression_level)
 
         labels = [
-            row['translation'] for i, row in data.iterrows()
+            text_compressor.compress(row['translation'])
+            for i, row in data.iterrows()
             if row['id'] not in self.datasets[split].skipped_ids
         ]
 
@@ -170,7 +186,7 @@ class SignToTextTask(FairseqTask):
 
         def process_label_fn(label):
             return self.target_dictionary.encode_line(
-                self.bpe_tokenizer.encode(label), append_eos=True, add_if_not_exist=False
+                self.bpe_tokenizer.encode(label), append_eos=False, add_if_not_exist=False
             )
 
         def label_len_fn(label):
@@ -223,8 +239,6 @@ class SignToTextTask(FairseqTask):
             )
             if self.bpe_tokenizer:
                 s = self.bpe_tokenizer.decode(s)
-            if self.pre_tokenizer:
-                s = self.pre_tokenizer.decode(s)
             return s
 
         if len(self.scorers) > 0:
@@ -259,7 +273,7 @@ class SignToTextTask(FairseqTask):
             else:
                 raise NotImplemented()
 
-            if safe_hasattr(s, "reset"):
+            if utils.safe_hasattr(s, "reset"):
                 s.reset()
             else:
                 s.ref = []
@@ -339,10 +353,9 @@ class SignToTextTask(FairseqTask):
             else:
                 raise NotImplemented()
 
-    def build_tokenizer(self, cfg):
-        logger.info(f"pre-tokenizer: {self.data_cfg.pre_tokenizer}")
-        return encoders.build_tokenizer(Namespace(**self.data_cfg.pre_tokenizer))
-
-    def build_bpe(self, cfg):
-        logger.info(f"tokenizer: {self.data_cfg.bpe_tokenizer}")
-        return encoders.build_bpe(Namespace(**self.data_cfg.bpe_tokenizer))
+    def get_dummy_sample(self):
+        subset = self.cfg.train_subset
+        subset = subset[0] if isinstance(subset, list) else subset
+        self.load_dataset(subset)
+        sample = self.datasets[subset][0]
+        return sample

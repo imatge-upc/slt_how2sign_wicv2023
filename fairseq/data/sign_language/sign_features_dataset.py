@@ -68,16 +68,18 @@ class SignFeatsDataset(FairseqDataset):
             max_sample_size if max_sample_size is not None else sys.maxsize
         )
         self.shuffle = shuffle
-
         self.skipped_ids = []
+
+    def filter_by_length(self, min_sample_size, max_sample_size):
         for _id, size in zip(self.ids[:], self.sizes[:]):
             if size < self.min_sample_size or size > self.max_sample_size:
                 self.feats_files.pop(self.ids.index(_id))
+                self.offsets.pop(self.ids.index(_id))
                 self.sizes.pop(self.ids.index(_id))
                 self.ids.remove(_id)
                 self.skipped_ids.append(_id)
         logger.info(
-            f"Skipped {len(self.skipped_ids)} sentences, that were too short or too long."
+            f"Filtered {len(self.skipped_ids)} sentences, that were too short or too long."
         )
 
     @classmethod
@@ -110,11 +112,16 @@ class SignFeatsDataset(FairseqDataset):
             pose = Pose.read(f.read())
 
         frames_list = list(range(offset, offset+length))
+
+        # Fix to bypass some examples that are wrong
+        if len(frames_list) > pose.body.data.shape[0]:
+            frames_list = frames_list[:-1]
+
         pose.body = pose.body.select_frames(frames_list)
 
         pose = self.postprocess(pose)
 
-        return {"idx": index, "id": _id, "source": pose}
+        return {"id": index, "vid_id": _id, "source": pose}
 
     def __len__(self):
         return len(self.sizes)
@@ -161,7 +168,7 @@ class SignFeatsDataset(FairseqDataset):
                 continue
 
             diff_length = max_length - len(padding_mask)
-            ids.append(sample['idx'])
+            ids.append(sample['id'])
             padding_masks.append(
                 F.pad(padding_mask, (0, diff_length), value=True)
             )
