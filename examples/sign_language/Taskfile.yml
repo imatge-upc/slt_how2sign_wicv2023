@@ -152,3 +152,453 @@ tasks:
       - "{{.DATA_DIR}}/phoenix.unigram{{.VOCAB_SIZE}}.model"
       - "{{.DATA_DIR}}/phoenix.unigram{{.VOCAB_SIZE}}.txt"
       - "{{.DATA_DIR}}/phoenix.unigram{{.VOCAB_SIZE}}.vocab"
+
+
+  wmt-slt22:focusnews:download:
+    desc: Download the WMT-SLT 22 FocusNews dataset.
+    preconditions:
+      - sh: "[[ -d {{.WMTSLT22_DIR}} ]]"
+        msg: Specify an existing WMTSLT22_DIR in the .env file.
+      - sh: "[ ! -z {{.WMTSLT22_ZENODO_TOKEN}} ]"
+        msg: Specify the Zenodo API Token in an env variable WMTSLT22_ZENODO_TOKEN
+    vars:
+      NUM_CONNECTIONS: 32
+      ZENODO_RECORD: 6631159
+    cmds:
+      - cmd: |
+              cookie=$(curl -s --cookie-jar - -o /dev/null "https://zenodo.org/record/{{.ZENODO_RECORD}}?token={{.WMTSLT22_ZENODO_TOKEN}}" | tail -n1 | cut -f7);
+              download_url=$(curl -s --cookie "session=${cookie}" "https://zenodo.org/api/records/{{.ZENODO_RECORD}}" | python3 -c "import sys, json; print(json.load(sys.stdin)['files'][0]['links']['self'])");
+              axel -a -n {{.NUM_CONNECTIONS}} -H "Cookie: session=${cookie}" -o {{.WMTSLT22_DIR}}/focusnews.v1.3.zip $download_url
+    status:
+      - test $(stat -c %s {{.WMTSLT22_DIR}}/focusnews.v1.3.zip) -eq 18498214944
+    generates:
+      - "{{.WMTSLT22_DIR}}/focusnews.v1.3.zip"
+
+  wmt-slt22:focusnews:extract:
+    desc: Extract the WMT-SLT 22 FocusNews dataset from the zip after download.
+    preconditions:
+      - sh: test $(stat -c %s {{.WMTSLT22_DIR}}/focusnews.v1.3.zip) -eq 18498214944
+        msg: The zip file does not exist or is not correct, redownload it ({{.WMTSLT22_DIR}}/focusnews.v1.3.zip).
+    cmds:
+      - cmd: |
+              unzip {{.WMTSLT22_DIR}}/focusnews.v1.3.zip -d {{.WMTSLT22_DIR}} |
+              pv -l -s $(unzip -Z -1 {{.WMTSLT22_DIR}}/focusnews.v1.3.zip | wc -l) > /dev/null
+    status:
+      - test $(find {{.WMTSLT22_DIR}}/focusnews/videos/ -name "*.mp4" -type f | wc -l) -eq 197
+    generates:
+      - "{{.WMTSLT22_DIR}}/focusnews/"
+
+  wmt-slt22:focusnews:videos_to_25fps:
+    desc: Convert the WMT-SLT 22 FocusNews dataset videos to 25fps.
+    preconditions:
+      - sh: test -d {{.WMTSLT22_DIR}}/focusnews
+        msg: The focusnews directory does not exist.
+    vars:
+      NUM_JOBS: 32
+    cmds:
+      - cmd: |
+              mkdir -p {{.WMTSLT22_DIR}}/focusnews/videos25fps;
+              find  {{.WMTSLT22_DIR}}/focusnews/videos/ -maxdepth 1 -name "focusnews.*.mp4" -type f |
+              parallel -j {{.NUM_JOBS}} --bar \
+              'fps=$(ffmpeg -i {} 2>&1 | sed -n "s/.*, \(.*\) tbr.*/\1/p");
+              if [[ $fps -ne 25 ]]; then
+                ffmpeg -i {} -filter:v fps=fps=25 -loglevel warning "{{.WMTSLT22_DIR}}/focusnews/videos25fps/$(basename {})";
+              else
+                cp {} {{.WMTSLT22_DIR}}/focusnews/videos25fps/;
+              fi'
+    status:
+      - test $(find {{.WMTSLT22_DIR}}/focusnews/videos25fps/ -name "*.mp4" -type f | wc -l) -eq 197
+    generates:
+      - "{{.WMTSLT22_DIR}}/focusnews/videos25fps/*.mp4"
+
+  wmt-slt22:focusnews:extract_mediapipe:
+    desc: Extract MediaPipe poses from the WMT-SLT 22 FocusNews dataset.
+    preconditions:
+      - sh: test $(find {{.WMTSLT22_DIR}}/focusnews/videos/ -name "*.mp4" -type f | wc -l) -eq 197
+        msg: The focusnews directory does not exist or is incomplete.
+    vars:
+      NUM_JOBS: 4
+      FPS: 25
+    cmds:
+      - cmd: |
+              if [[ ! -d {{.WMTSLT22_DIR}}/focusnews/mediapipe_original ]]; then
+                mv {{.WMTSLT22_DIR}}/focusnews/mediapipe {{.WMTSLT22_DIR}}/focusnews/mediapipe_original
+              fi
+        silent: True
+      - cmd: |
+              if [[ -d {{.WMTSLT22_DIR}}/focusnews/mediapipe ]]; then
+                rm -r {{.WMTSLT22_DIR}}/focusnews/mediapipe
+              fi
+        silent: True
+      - cmd: find {{.WMTSLT22_DIR}}/focusnews/videos/ -name "*.mp4" -type f |
+             parallel -j {{.NUM_JOBS}} --bar \
+             'id=$(basename {} .mp4);
+             pose_file="{{.WMTSLT22_DIR}}/focusnews/mediapipe/${id}.pose";
+             python ./scripts/extract_mediapipe.py --video-file {} --poses-file ${pose_file} --fps {{.FPS}} 2> /dev/null'
+    status:
+      - test $(find {{.WMTSLT22_DIR}}/focusnews/mediapipe_original/ -name "*.tar.xz" -type f | wc -l) -eq 197
+      - test $(find {{.WMTSLT22_DIR}}/focusnews/mediapipe/ -name "*.pose" -type f | wc -l) -eq 197
+    generates:
+      - "{{.WMTSLT22_DIR}}/focusnews/mediapipe/*.pose"
+
+
+  wmt-slt22:srf:download:
+    desc: Download the WMT-SLT 22 SRF dataset.
+    preconditions:
+      - sh: "[[ -d {{.WMTSLT22_DIR}} ]]"
+        msg: Specify an existing WMTSLT22_DIR in the .env file.
+      - sh: "[ ! -z {{.WMTSLT22_ZENODO_TOKEN}} ]"
+        msg: Specify the Zenodo API Token in an env variable WMTSLT22_ZENODO_TOKEN
+    vars:
+      NUM_CONNECTIONS: 32
+      ZENODO_RECORD: 6637392
+    cmds:
+      - cmd: |
+              cookie=$(curl -s --cookie-jar - -o /dev/null "https://zenodo.org/record/{{.ZENODO_RECORD}}?token={{.WMTSLT22_ZENODO_TOKEN}}" | tail -n1 | cut -f7);
+              download_url=$(curl -s --cookie "session=${cookie}" "https://zenodo.org/api/records/{{.ZENODO_RECORD}}" | python3 -c "import sys, json; print(json.load(sys.stdin)['files'][0]['links']['self'])");
+              axel -a -n {{.NUM_CONNECTIONS}} -H "Cookie: session=${cookie}" -o {{.WMTSLT22_DIR}}/srf.swisstxt.v1.2.zip $download_url
+    status:
+      - test $(stat -c %s {{.WMTSLT22_DIR}}/srf.swisstxt.v1.2.zip) -eq 8512838220
+    generates:
+      - "{{.WMTSLT22_DIR}}/srf.swisstxt.v1.2.zip"
+
+  wmt-slt22:srf:extract:
+    desc: Extract the WMT-SLT 22 SRF dataset from the zip after download.
+    preconditions:
+      - sh: test $(stat -c %s {{.WMTSLT22_DIR}}/srf.swisstxt.v1.2.zip) -eq 8512838220
+        msg: The zip file does not exist or is not correct, redownload it ({{.WMTSLT22_DIR}}/srf.swisstxt.v1.2.zip).
+    cmds:
+      - cmd: |
+              unzip {{.WMTSLT22_DIR}}/srf.swisstxt.v1.2.zip -d {{.WMTSLT22_DIR}} |
+              pv -l -s $(unzip -Z -1 {{.WMTSLT22_DIR}}/srf.swisstxt.v1.2.zip | wc -l) > /dev/null
+    status:
+      - test $(find {{.WMTSLT22_DIR}}/srf/*/subtitles/ -name "*.srt" -type f | wc -l) -eq 1978
+      - test $(find {{.WMTSLT22_DIR}}/srf/parallel/videos/ -name "*.mp4" -type f | wc -l) -eq 29
+    generates:
+      - "{{.WMTSLT22_DIR}}/srf/"
+
+  wmt-slt22:srf:extract_mediapipe:
+    desc: Extract MediaPipe poses from the WMT-SLT 22 SRF dataset.
+    preconditions:
+      - sh: test $(find {{.WMTSLT22_DIR}}/srf/parallel/videos/ -name "*.mp4" -type f | wc -l) -eq 29
+        msg: The SRF directory does not exist or is incomplete.
+    vars:
+      NUM_JOBS: 4
+      FPS: 25
+    cmds:
+      - cmd: |
+              if [[ -d {{.WMTSLT22_DIR}}/srf/parallel/mediapipe ]]; then
+                rm -r {{.WMTSLT22_DIR}}/srf/parallel/mediapipe
+              fi
+        silent: True
+      - cmd: find {{.WMTSLT22_DIR}}/srf/parallel/videos/ -name "*.mp4" -type f |
+             parallel -j {{.NUM_JOBS}} --bar \
+             'id=$(basename {} .mp4);
+             pose_file="{{.WMTSLT22_DIR}}/srf/parallel/mediapipe/${id}.pose";
+             python ./scripts/extract_mediapipe.py --video-file {} --poses-file ${pose_file} --fps {{.FPS}} 2> /dev/null'
+    status:
+      - test $(find {{.WMTSLT22_DIR}}/srf/parallel/mediapipe/ -name "*.pose" -type f | wc -l) -eq 29
+    generates:
+      - "{{.WMTSLT22_DIR}}/srf/parallel/mediapipe/*.pose"
+
+
+  wmt-slt22:dev:download:
+    desc: Download the WMT-SLT 22 dev set.
+    preconditions:
+      - sh: "[[ -d {{.WMTSLT22_DIR}} ]]"
+        msg: Specify an existing WMTSLT22_DIR in the .env file.
+    vars:
+      NUM_CONNECTIONS: 32
+    cmds:
+      - cmd: axel -a -n {{.NUM_CONNECTIONS}}
+              --output={{.WMTSLT22_DIR}}/dev.v3.0.tar.gz
+              https://files.ifi.uzh.ch/cl/archiv/2022/easier/wmtslt/dev/dev.v3.0.tar.gz
+    status:
+      - test $(stat -c %s {{.WMTSLT22_DIR}}/dev.v3.0.tar.gz) -eq 385160507
+    generates:
+      - "{{.WMTSLT22_DIR}}/dev.v3.0.tar.gz"
+
+  wmt-slt22:dev:extract:
+    desc: Extract the WMT-SLT 22 dev set from the tar.gz after download.
+    preconditions:
+      - sh: test $(stat -c %s {{.WMTSLT22_DIR}}/dev.v3.0.tar.gz) -eq 385160507
+        msg: The zip file does not exist or is not correct, redownload it ({{.WMTSLT22_DIR}}/dev.v3.0.tar.gz).
+    cmds:
+      - cmd: pv {{.WMTSLT22_DIR}}/dev.v3.0.tar.gz | tar -x -I pigz -C {{.WMTSLT22_DIR}}
+    status:
+      - test $(find {{.WMTSLT22_DIR}}/dev/*/videos/ -name "*.mp4" -type f | wc -l) -eq 840
+    generates:
+      - "{{.WMTSLT22_DIR}}/dev/"
+
+  wmt-slt22:dev:extract_mediapipe:
+    desc: Extract MediaPipe poses from the WMT-SLT 22 dev set.
+    preconditions:
+      - sh: test $(find {{.WMTSLT22_DIR}}/dev/*/videos/ -name "*.mp4" -type f | wc -l) -eq 840
+        msg: The dev directory does not exist or is incomplete.
+    vars:
+      NUM_JOBS: 16
+      FPS: 25
+    cmds:
+      - cmd: |
+              if [[ ! -d {{.WMTSLT22_DIR}}/dev/dsgs-de/mediapipe_original ]]; then
+                mv {{.WMTSLT22_DIR}}/dev/dsgs-de/mediapipe {{.WMTSLT22_DIR}}/dev/dsgs-de/mediapipe_original
+              fi
+              if [[ ! -d {{.WMTSLT22_DIR}}/dev/de-dsgs/mediapipe_original ]]; then
+                mv {{.WMTSLT22_DIR}}/dev/de-dsgs/mediapipe {{.WMTSLT22_DIR}}/dev/de-dsgs/mediapipe_original
+              fi
+        silent: True
+      - cmd: |
+              if [[ -d {{.WMTSLT22_DIR}}/dev/dsgs-de/mediapipe ]]; then
+                rm -r {{.WMTSLT22_DIR}}/dev/dsgs-de/mediapipe
+              fi
+              if [[ -d {{.WMTSLT22_DIR}}/dev/de-dsgs/mediapipe ]]; then
+                rm -r {{.WMTSLT22_DIR}}/dev/de-dsgs/mediapipe
+              fi
+        silent: True
+      - cmd: find {{.WMTSLT22_DIR}}/dev/*/videos/ -name "*.mp4" -type f |
+             parallel -j {{.NUM_JOBS}} --bar \
+             'id=$(basename {} .mp4);
+             direction=$(basename $(dirname $(dirname {})));
+             pose_file="{{.WMTSLT22_DIR}}/dev/${direction}/mediapipe/${id}.pose";
+             python ./scripts/extract_mediapipe.py --video-file {} --poses-file ${pose_file} --fps {{.FPS}} 2> /dev/null'
+    status:
+      - test $(find {{.WMTSLT22_DIR}}/dev/*/mediapipe/ -name "*.pose" -type f | wc -l) -eq 840
+    generates:
+      - "{{.WMTSLT22_DIR}}/dev/dsgs-de/mediapipe/*.pose"
+      - "{{.WMTSLT22_DIR}}/dev/de-dsgs/mediapipe/*.pose"
+
+
+  wmt-slt22:test:download:
+    desc: Download the WMT-SLT 22 test set.
+    preconditions:
+      - sh: "[[ -d {{.WMTSLT22_DIR}} ]]"
+        msg: Specify an existing WMTSLT22_DIR in the .env file.
+    vars:
+      NUM_CONNECTIONS: 32
+    cmds:
+      - cmd: axel -a -n {{.NUM_CONNECTIONS}}
+              --output={{.WMTSLT22_DIR}}/test_sources.v3.0.tar.gz
+              https://files.ifi.uzh.ch/cl/archiv/2022/easier/wmtslt/test/test_sources.v3.0.tar.gz
+    status:
+      - test $(stat -c %s {{.WMTSLT22_DIR}}/test_sources.v3.0.tar.gz) -eq 523098083
+    generates:
+      - "{{.WMTSLT22_DIR}}/test_sources.v3.0.tar.gz"
+
+  wmt-slt22:test:extract:
+    desc: Extract the WMT-SLT 22 test set from the tar.gz after download.
+    preconditions:
+      - sh: test $(stat -c %s {{.WMTSLT22_DIR}}/test_sources.v3.0.tar.gz) -eq 523098083
+        msg: The zip file does not exist or is not correct, redownload it ({{.WMTSLT22_DIR}}/test_sources.v3.0.tar.gz).
+    cmds:
+      - cmd: pv {{.WMTSLT22_DIR}}/test_sources.v3.0.tar.gz | tar -x -I pigz -C {{.WMTSLT22_DIR}}
+    status:
+      - test $(find {{.WMTSLT22_DIR}}/test/dsgs-de/videos/ -name "*.mp4" -type f | wc -l) -eq 488
+      - test $(find {{.WMTSLT22_DIR}}/test/de-dsgs/subtitles/ -name "*.srt" -type f | wc -l) -eq 411
+    generates:
+      - "{{.WMTSLT22_DIR}}/test/"
+
+  wmt-slt22:test:extract_mediapipe:
+    desc: Extract MediaPipe poses from the WMT-SLT 22 test set.
+    preconditions:
+      - sh: test $(find {{.WMTSLT22_DIR}}/test/dsgs-de/videos/ -name "*.mp4" -type f | wc -l) -eq 488
+        msg: The test directory does not exist or is incomplete.
+    vars:
+      NUM_JOBS: 16
+      FPS: 25
+    cmds:
+      - cmd: |
+              if [[ ! -d {{.WMTSLT22_DIR}}/test/dsgs-de/mediapipe_original ]]; then
+                mv {{.WMTSLT22_DIR}}/test/dsgs-de/mediapipe {{.WMTSLT22_DIR}}/test/dsgs-de/mediapipe_original
+              fi
+        silent: True
+      - cmd: |
+              if [[ -d {{.WMTSLT22_DIR}}/test/dsgs-de/mediapipe ]]; then
+                rm -r {{.WMTSLT22_DIR}}/test/dsgs-de/mediapipe
+              fi
+        silent: True
+      - cmd: find {{.WMTSLT22_DIR}}/test/dsgs-de/videos/ -name "*.mp4" -type f |
+             parallel -j {{.NUM_JOBS}} --bar \
+             'id=$(basename {} .mp4);
+             pose_file="{{.WMTSLT22_DIR}}/test/dsgs-de/mediapipe/${id}.pose";
+             python ./scripts/extract_mediapipe.py --video-file {} --poses-file ${pose_file} --fps {{.FPS}} 2> /dev/null'
+    status:
+      - test $(find {{.WMTSLT22_DIR}}/test/dsgs-de/mediapipe/ -name "*.pose" -type f | wc -l) -eq 488
+    generates:
+      - "{{.WMTSLT22_DIR}}/test/dsgs-de/mediapipe/*.pose"
+
+  wmt-slt22:generate_tsv:
+    desc: Generate TSV files for the WMT-SLT 22 datasets.
+    preconditions:
+      - sh: "[[ -d {{.FAIRSEQ_ROOT}} ]]"
+        msg: Specify the FAIRSEQ_ROOT in the .env file.
+      - sh: "[ ! -z {{.DATA_DIR}} ]"
+        msg: Specify the DATA_DIR in the .env file.
+      - sh: test $(find {{.WMTSLT22_DIR}}/focusnews/mediapipe/ -name "*.pose" -type f | wc -l) -eq 197
+        msg: Mediapipe features for focusnews have not been generated yet or are incomplete. Run the extraction.
+      # - sh: test $(find {{.WMTSLT22_DIR}}/srf/parallel/mediapipe/ -name "*.pose" -type f | wc -l) -eq 29
+      #   msg: Mediapipe features for SRF have not been generated yet or are incomplete. Run the extraction.
+      - sh: test $(find {{.WMTSLT22_DIR}}/dev/*/mediapipe/ -name "*.pose" -type f | wc -l) -eq 840
+        msg: Mediapipe features for dev have not been generated yet or are incomplete. Run the extraction.
+      - sh: test $(find {{.WMTSLT22_DIR}}/test/dsgs-de/mediapipe/ -name "*.pose" -type f | wc -l) -eq 488
+        msg: Mediapipe features for test have not been generated yet or are incomplete. Run the extraction.
+    cmds:
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
+                --dataset wmt_slt22 \
+                --path {{.WMTSLT22_DIR}} \
+                --tsv-out {{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnews.tsv \
+                --type mediapipe \
+                --split focusnews \
+                --signs-lang dsgs \
+                --translation-lang de
+      # - cmd: |
+      #         PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+      #         python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
+      #           --dataset wmt_slt22 \
+      #           --path {{.WMTSLT22_DIR}} \
+      #           --tsv-out {{.DATA_DIR}}/wmtslt22.mediapipe.train_srf.tsv \
+      #           --type mediapipe \
+      #           --split srf_parallel \
+      #           --signs-lang dsgs \
+      #           --translation-lang de
+      # - cmd: |
+      #         PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+      #         python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
+      #           --dataset wmt_slt22 \
+      #           --path {{.WMTSLT22_DIR}} \
+      #           --tsv-out {{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnewsandsrf.tsv \
+      #           --type mediapipe \
+      #           --split focusnews srf_parallel \
+      #           --signs-lang dsgs \
+      #           --translation-lang de
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
+                --dataset wmt_slt22 \
+                --path {{.WMTSLT22_DIR}} \
+                --tsv-out {{.DATA_DIR}}/wmtslt22.train_srfmonolingual.tsv \
+                --split srf_monolingual \
+                --translation-lang de
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
+                --dataset wmt_slt22 \
+                --path {{.WMTSLT22_DIR}} \
+                --tsv-out {{.DATA_DIR}}/wmtslt22.mediapipe.dev_dsgs-de.tsv \
+                --type mediapipe \
+                --split dev_dsgs-de \
+                --signs-lang dsgs \
+                --translation-lang de
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
+                --dataset wmt_slt22 \
+                --path {{.WMTSLT22_DIR}} \
+                --tsv-out {{.DATA_DIR}}/wmtslt22.mediapipe.dev_de-dsgs.tsv \
+                --type mediapipe \
+                --split dev_de-dsgs \
+                --signs-lang dsgs \
+                --translation-lang de
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
+                --dataset wmt_slt22 \
+                --path {{.WMTSLT22_DIR}} \
+                --tsv-out {{.DATA_DIR}}/wmtslt22.mediapipe.test_dsgs-de.tsv \
+                --type mediapipe \
+                --split test_dsgs-de \
+                --signs-lang dsgs
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
+                --dataset wmt_slt22 \
+                --path {{.WMTSLT22_DIR}} \
+                --tsv-out {{.DATA_DIR}}/wmtslt22.test_de-dsgs.tsv \
+                --split test_de-dsgs \
+                --translation-lang de
+    status:
+      - test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnews.tsv | cut -d ' ' -f 1) = "aae212d4d234afdc98bb3646e217b9c6"
+      # - test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.train_srf.tsv | cut -d ' ' -f 1) = "???"
+      # - test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnewsandsrf.tsv | cut -d ' ' -f 1) = "???"
+      - test $(md5sum {{.DATA_DIR}}/wmtslt22.train_srfmonolingual.tsv | cut -d ' ' -f 1) = "2ed88554bb111625af157a736a7f2e65"
+      - test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.dev_dsgs-de.tsv | cut -d ' ' -f 1) = "cd4a8b017f371e34ed41fa16258fc2bb"
+      - test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.dev_de-dsgs.tsv | cut -d ' ' -f 1) = "87a9b15d060f3e183e2ed4684a2fca9d"
+      - test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.test_dsgs-de.tsv | cut -d ' ' -f 1) = "5f4c436c1c2324fed79cd0e052e65f3a"
+      - test $(md5sum {{.DATA_DIR}}/wmtslt22.test_de-dsgs.tsv | cut -d ' ' -f 1) = "53d11cdd7657acae2b454964b0da85c2"
+    generates:
+      - "{{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnews.tsv"
+      # - "{{.DATA_DIR}}/wmtslt22.mediapipe.train_srf.tsv"
+      # - "{{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnewsandsrf.tsv"
+      - "{{.DATA_DIR}}/wmtslt22.train_srfmonolingual.tsv"
+      - "{{.DATA_DIR}}/wmtslt22.mediapipe.dev_dsgs-de.tsv"
+      - "{{.DATA_DIR}}/wmtslt22.mediapipe.dev_de-dsgs.tsv"
+      - "{{.DATA_DIR}}/wmtslt22.mediapipe.test_dsgs-de.tsv"
+      - "{{.DATA_DIR}}/wmtslt22.test_de-dsgs.tsv"
+
+  wmt-slt22:train_sentencepiece:
+    desc: Train SentencePiece models for the WMT-SLT 22 datasets.
+    preconditions:
+      - sh: "[[ -d {{.FAIRSEQ_ROOT}} ]]"
+        msg: Specify the FAIRSEQ_ROOT in the .env file.
+      - sh: "[ ! -z {{.DATA_DIR}} ]"
+        msg: Specify the DATA_DIR in the .env file.
+      - sh: "[ ! -z {{.VOCAB_SIZE}} ]"
+        msg: Specify a VOCAB_SIZE.
+      - sh: |
+            test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnews.tsv | cut -d ' ' -f 1) = "aae212d4d234afdc98bb3646e217b9c6"
+            # test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.train_srf.tsv | cut -d ' ' -f 1) = "???"
+            # test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnewsandsrf.tsv | cut -d ' ' -f 1) = "???"
+            test $(md5sum {{.DATA_DIR}}/wmtslt22.train_srfmonolingual.tsv | cut -d ' ' -f 1) = "2ed88554bb111625af157a736a7f2e65"
+        msg: TSV files have not been generated yet or are incomplete. Prepare them before running this.
+    cmds:
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/train_spm.py \
+                --tsv-file {{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnews.tsv \
+                --spm-prefix {{.DATA_DIR}}/wmtslt22.focusnews.unigram{{.VOCAB_SIZE}} \
+                --vocab-size {{.VOCAB_SIZE}} \
+                --vocab-type unigram
+      # - cmd: |
+      #         PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+      #         python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/train_spm.py \
+      #           --tsv-file {{.DATA_DIR}}/wmtslt22.mediapipe.train_srf.tsv \
+      #           --spm-prefix {{.DATA_DIR}}/wmtslt22.srf.unigram{{.VOCAB_SIZE}} \
+      #           --vocab-size {{.VOCAB_SIZE}} \
+      #           --vocab-type unigram
+      # - cmd: |
+      #         PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+      #         python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/train_spm.py \
+      #           --tsv-file {{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnewsandsrf.tsv \
+      #           --spm-prefix {{.DATA_DIR}}/wmtslt22.focusnewsandsrf.unigram{{.VOCAB_SIZE}} \
+      #           --vocab-size {{.VOCAB_SIZE}} \
+      #           --vocab-type unigram
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/train_spm.py \
+                --tsv-file {{.DATA_DIR}}/wmtslt22.train_srfmonolingual.tsv \
+                --spm-prefix {{.DATA_DIR}}/wmtslt22.srfmonolingual.unigram{{.VOCAB_SIZE}} \
+                --vocab-size {{.VOCAB_SIZE}} \
+                --vocab-type unigram
+    status:
+      - test $(cat {{.DATA_DIR}}/wmtslt22.focusnews.unigram{{.VOCAB_SIZE}}.vocab | wc -l) -eq {{.VOCAB_SIZE}}
+      - test $(cat {{.DATA_DIR}}/wmtslt22.focusnews.unigram{{.VOCAB_SIZE}}.txt | wc -l) -eq $(({{.VOCAB_SIZE}}-4))
+      # - test $(cat {{.DATA_DIR}}/wmtslt22.srf.unigram{{.VOCAB_SIZE}}.vocab | wc -l) -eq {{.VOCAB_SIZE}}
+      # - test $(cat {{.DATA_DIR}}/wmtslt22.srf.unigram{{.VOCAB_SIZE}}.txt | wc -l) -eq $(({{.VOCAB_SIZE}}-4))
+      # - test $(cat {{.DATA_DIR}}/wmtslt22.focusnewsandsrf.unigram{{.VOCAB_SIZE}}.vocab | wc -l) -eq {{.VOCAB_SIZE}}
+      # - test $(cat {{.DATA_DIR}}/wmtslt22.focusnewsandsrf.unigram{{.VOCAB_SIZE}}.txt | wc -l) -eq $(({{.VOCAB_SIZE}}-4))
+      - test $(cat {{.DATA_DIR}}/wmtslt22.srfmonolingual.unigram{{.VOCAB_SIZE}}.vocab | wc -l) -eq {{.VOCAB_SIZE}}
+      - test $(cat {{.DATA_DIR}}/wmtslt22.srfmonolingual.unigram{{.VOCAB_SIZE}}.txt | wc -l) -eq $(({{.VOCAB_SIZE}}-4))
+    generates:
+      - "{{.DATA_DIR}}/focusnews.unigram{{.VOCAB_SIZE}}.model"
+      - "{{.DATA_DIR}}/focusnews.unigram{{.VOCAB_SIZE}}.txt"
+      - "{{.DATA_DIR}}/focusnews.unigram{{.VOCAB_SIZE}}.vocab"
+      # - "{{.DATA_DIR}}/srf.unigram{{.VOCAB_SIZE}}.model"
+      # - "{{.DATA_DIR}}/srf.unigram{{.VOCAB_SIZE}}.txt"
+      # - "{{.DATA_DIR}}/srf.unigram{{.VOCAB_SIZE}}.vocab"
+      # - "{{.DATA_DIR}}/focusnewsandsrf.unigram{{.VOCAB_SIZE}}.model"
+      # - "{{.DATA_DIR}}/focusnewsandsrf.unigram{{.VOCAB_SIZE}}.txt"
+      # - "{{.DATA_DIR}}/focusnewsandsrf.unigram{{.VOCAB_SIZE}}.vocab"
+      - "{{.DATA_DIR}}/srfmonolingual.unigram{{.VOCAB_SIZE}}.model"
+      - "{{.DATA_DIR}}/srfmonolingual.unigram{{.VOCAB_SIZE}}.txt"
+      - "{{.DATA_DIR}}/srfmonolingual.unigram{{.VOCAB_SIZE}}.vocab"
