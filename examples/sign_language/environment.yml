@@ -19,7 +19,6 @@ dependencies:
   - opencv=4.6.0
   - pysoundfile=0.10.2
   - h5py=3.7.0
-  - pyarrow=8.0.0
   - tqdm=4.64.0
   - wandb=0.12.21
   - tensorboardx=2.5.1
