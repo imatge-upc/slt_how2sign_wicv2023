@@ -33,17 +33,19 @@ class SignLanguageDataset(Dataset):
     def __getitem__(self, n: int) -> Tuple[Tensor, str, str]:
         row = self.data.loc[n, :]
 
-        signs_file = row.pop('signs_file')
-        offset = row.pop('signs_offset')
-        length = row.pop('signs_length')
+        # This check is needed for some text-to-sign test sets,
+        # where target is not provided
+        if not pd.isna(row['signs_file']):
+            signs_file = row.pop('signs_file')
+            offset = row.pop('signs_offset')
+            length = row.pop('signs_length')
 
-        with open(signs_file, 'rb') as f:
-            p = Pose.read(f.read())
-        p.body = p.body.select_frames(list(range(offset, offset+length)))
+            with open(signs_file, 'rb') as f:
+                p = Pose.read(f.read())
+            p.body = p.body.select_frames(list(range(offset, offset+length)))
+            row['signs'] = p.torch()
 
         sample = row.to_dict()
-        sample['signs'] = p.torch()
-
         return {k: v for k, v in sample.items() if not pd.isna(v)}
 
     def __len__(self) -> int:

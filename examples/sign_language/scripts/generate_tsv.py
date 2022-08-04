@@ -22,10 +22,10 @@ def parse_args():
     parser.add_argument("--dataset", required=True, choices=DATASET_REGISTRY.keys(), type=str)
     parser.add_argument("--path", required=True, type=str)
     parser.add_argument("--tsv-out", required=True, type=str)
-    parser.add_argument("--type", required=True, type=str)
+    parser.add_argument("--type", type=str)
     parser.add_argument("--split", required=True, nargs='+', type=str)
-    parser.add_argument("--signs-lang", required=True, type=str)
-    parser.add_argument("--translation-lang", required=True, type=str)
+    parser.add_argument("--signs-lang", type=str)
+    parser.add_argument("--translation-lang", type=str)
 
     args = parser.parse_args()
 
@@ -43,7 +43,7 @@ def main():
     for s in args.split:
         log.info(f"Processing '{s}' split from '{args.dataset}' dataset")
         dataset = dataset_cls(base_dir, s, args.type, args.signs_lang, args.translation_lang)
-        df_out = pd.concat((df_out, dataset.data))
+        df_out = pd.concat((df_out, dataset.data), ignore_index=True)
 
     tsv_out.parent.mkdir(parents=True, exist_ok=True)
     save_df_to_tsv(df_out, tsv_out)
