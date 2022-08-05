@@ -602,3 +602,139 @@ tasks:
       - "{{.DATA_DIR}}/srfmonolingual.unigram{{.VOCAB_SIZE}}.model"
       - "{{.DATA_DIR}}/srfmonolingual.unigram{{.VOCAB_SIZE}}.txt"
       - "{{.DATA_DIR}}/srfmonolingual.unigram{{.VOCAB_SIZE}}.vocab"
+
+  train:
+    preconditions:
+      - sh: "[[ -d {{.DATA_DIR}} ]]"
+        msg: Specify the DATA_DIR in the .env file
+      - sh: "[[ {{.SAVE_DIR}} ]]"
+        msg: Specify the SAVE_DIR in the .env file
+      - sh: "[[ {{.WANDB_ENTITY}} ]]"
+        msg: Specify the WANDB_ENTITY in the .env file
+      - sh: "[[ {{.WANDB_PROJECT}} ]]"
+        msg: Specify the WANDB_PROJECT in the .env file
+      - sh: "[ {{.NUM_GPUS}} -gt 0 ]"
+        msg: Use at least 1 GPU to train the model
+      - sh: '[ "{{.EXPERIMENT}}" ]'
+        msg: Specify a name for the EXPERIMENT
+    vars:
+      CONFIG_DIR: ./config/
+      BASE_UPDATE_FREQ:
+        sh: |
+            cat {{.CONFIG_DIR}}/{{.EXPERIMENT}}.yaml | grep "update_freq" | awk -F'[][]' '{print $2}'
+      NUM_GPUS:
+        sh: |
+            if [ "$CUDA_VISIBLE_DEVICES" ]; then
+              echo $CUDA_VISIBLE_DEVICES | sed 's/[^,]//g' | wc -c
+            else
+              echo 0
+            fi
+      UPDATE_FREQ:
+        sh: |
+            if [ {{.NUM_GPUS}} -gt 0 ]; then
+              echo $(( {{.BASE_UPDATE_FREQ}} / {{.NUM_GPUS}} ))
+            else
+              echo {{.BASE_UPDATE_FREQ}}
+            fi
+    cmds:
+      - cmd: echo "Running experiment {{.EXPERIMENT}}"
+        silent: true
+
+      - cmd: |
+              WANDB_NAME={{.EXPERIMENT}} \
+              fairseq-hydra-train \
+              --config-dir {{.CONFIG_DIR}} \
+              --config-name {{.EXPERIMENT}}.yaml \
+              optimization.update_freq=[{{.UPDATE_FREQ}}]
+        silent: true
+
+  generate:
+    preconditions:
+      - sh: "[[ -d {{.DATA_DIR}} ]]"
+        msg: Specify the DATA_ROOT in the .env file
+      - sh: "[[ {{.SAVE_DIR}} ]]"
+        msg: Specify the SAVE_DIR in the .env file
+      - sh: '[ "{{.EXPERIMENT}}" ]'
+        msg: Specify a name for the EXPERIMENT
+      - sh: '[ "{{.CKPT}}" ]'
+        msg: Specify a CKPT
+      - sh: '[ "{{.SUBSET}}" ]'
+        msg: Specify a SUBSET
+      - sh: '[ "{{.SPM_MODEL}}" ]'
+        msg: Specify a SPM_MODEL
+
+    cmds:
+      - cmd: echo "Generating outputs for '{{.EXPERIMENT}}' ({{.SUBSET}}) with checkpoint '{{.CKPT}}'"
+        silent: true
+
+      - cmd: |
+              mkdir -p $(dirname "{{.OUT_FILE}}")
+              fairseq-generate {{.DATA_DIR}} \
+              --path {{.CKPT_FILE}} \
+              --task sign_to_text \
+              --gen-subset {{.SUBSET}} \
+              --seed {{.SEED}} \
+              --scoring sacrebleu \
+              --max-source-positions {{.MAX_SOURCE_POSITIONS}} \
+              --max-target-positions {{.MAX_TARGET_POSITIONS}} \
+              --max-tokens {{.MAX_TOKENS}} \
+              --beam {{.BEAM_SIZE}} \
+              --sacrebleu \
+              --sacrebleu-tokenizer 13a \
+              --bpe sentencepiece \
+              --sentencepiece-model {{.DATA_DIR}}/{{.SPM_MODEL}} > {{.OUT_FILE}}
+        silent: true
+    vars:
+      SEED: 48151623
+      MAX_SOURCE_POSITIONS: 1024
+      MAX_TARGET_POSITIONS: 1024
+      MAX_TOKENS: 80_000
+      BEAM_SIZE: 5
+      CKPT_FILE:
+        sh: echo {{.SAVE_DIR}}/{{.EXPERIMENT}}/ckpts/{{.CKPT}}
+      OUT_FILE:
+        sh: tmp={{.CKPT_FILE}}; echo "{{.SAVE_DIR}}/{{.EXPERIMENT}}/generates/{{.SUBSET}}/$(basename ${tmp::-3}).out"
+
+  generate_no_target:
+    preconditions:
+      - sh: "[[ -d {{.DATA_DIR}} ]]"
+        msg: Specify the DATA_ROOT in the .env file
+      - sh: "[[ {{.SAVE_DIR}} ]]"
+        msg: Specify the SAVE_DIR in the .env file
+      - sh: '[ "{{.EXPERIMENT}}" ]'
+        msg: Specify a name for the EXPERIMENT
+      - sh: '[ "{{.CKPT}}" ]'
+        msg: Specify a CKPT
+      - sh: '[ "{{.SUBSET}}" ]'
+        msg: Specify a SUBSET
+      - sh: '[ "{{.SPM_MODEL}}" ]'
+        msg: Specify a SPM_MODEL
+
+    cmds:
+      - cmd: echo "Generating outputs for '{{.EXPERIMENT}}' ({{.SUBSET}}) with checkpoint '{{.CKPT}}'"
+        silent: true
+
+      - cmd: |
+              mkdir -p $(dirname "{{.OUT_FILE}}")
+              fairseq-generate {{.DATA_DIR}} \
+              --path {{.CKPT_FILE}} \
+              --task sign_to_text \
+              --gen-subset {{.SUBSET}} \
+              --seed {{.SEED}} \
+              --max-source-positions {{.MAX_SOURCE_POSITIONS}} \
+              --max-target-positions {{.MAX_TARGET_POSITIONS}} \
+              --max-tokens {{.MAX_TOKENS}} \
+              --beam {{.BEAM_SIZE}} \
+              --bpe sentencepiece \
+              --sentencepiece-model {{.DATA_DIR}}/{{.SPM_MODEL}} > {{.OUT_FILE}}
+        silent: true
+    vars:
+      SEED: 48151623
+      MAX_SOURCE_POSITIONS: 1024
+      MAX_TARGET_POSITIONS: 1024
+      MAX_TOKENS: 80_000
+      BEAM_SIZE: 5
+      CKPT_FILE:
+        sh: echo {{.SAVE_DIR}}/{{.EXPERIMENT}}/ckpts/{{.CKPT}}
+      OUT_FILE:
+        sh: tmp={{.CKPT_FILE}}; echo "{{.SAVE_DIR}}/{{.EXPERIMENT}}/generates/{{.SUBSET}}/$(basename ${tmp::-3}).out"

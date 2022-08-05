@@ -147,10 +147,14 @@ class Sign2TextTransformerModel(FairseqEncoderDecoderModel):
     def build_model(cls, cfg, task):
         """Build a new model instance."""
 
-        dummy_sample = task.get_dummy_sample()
-        if isinstance(dummy_sample['source'], Pose):
-            feats_type = SignFeatsType.mediapipe
-            feat_dim = dummy_sample['source'].body.data.shape[-2]
+        # TODO: Not working during generate (train.tsv not found)
+        #       PROVISIONAL WORKAROUND
+        # dummy_sample = task.get_dummy_sample()
+        # if isinstance(dummy_sample['source'], Pose):
+        #     feats_type = SignFeatsType.mediapipe
+        #     feat_dim = dummy_sample['source'].body.data.shape[-2]
+        feats_type = SignFeatsType.mediapipe
+        feat_dim = 195
 
         def build_embedding(dictionary, embed_dim):
             num_embeddings = len(dictionary)

@@ -114,8 +114,7 @@ class SignFeatsDataset(FairseqDataset):
         frames_list = list(range(offset, offset+length))
 
         # Fix to bypass some examples that are wrong
-        if len(frames_list) > pose.body.data.shape[0]:
-            frames_list = frames_list[:-1]
+        frames_list = [fr for fr in frames_list if fr < pose.body.data.shape[0]]
 
         pose.body = pose.body.select_frames(frames_list)
 

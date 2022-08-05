@@ -5,6 +5,7 @@
 import logging
 from pathlib import Path
 from typing import Optional
+from argparse import Namespace
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -54,10 +55,6 @@ class SignToTextConfig(FairseqDataclass):
         default=True,
         metadata={"help": "set True to shuffle the dataset between epochs"},
     )
-    bpe: SentencepieceConfig = field(
-        default_factory=lambda: SentencepieceConfig("sentencepiece"),
-        metadata={"help": "BPE configuration"},
-    )
     text_compression_level: ChoiceEnum([x.name for x in TextCompressionLevel]) = field(
         default="none",
         metadata={
@@ -94,6 +91,7 @@ class SignToTextConfig(FairseqDataclass):
 
     # Inherit from other configs
     train_subset: str = II("dataset.train_subset")
+    bpe_sentencepiece_model: str = II("bpe.sentencepiece_model")
 
 
 @register_task("sign_to_text", dataclass=SignToTextConfig)
@@ -101,7 +99,12 @@ class SignToTextTask(FairseqTask):
     def __init__(self, cfg, tgt_dict):
         super().__init__(cfg)
         self.tgt_dict = tgt_dict
-        self.bpe_tokenizer = self.build_bpe(cfg.bpe)
+        self.bpe_tokenizer = self.build_bpe(
+            Namespace(
+                bpe='sentencepiece',
+                sentencepiece_model=self.cfg.bpe_sentencepiece_model
+            )
+        )
         self.scorers = []
         if self.cfg.eval_wer:
             self.scorers.append(
@@ -114,7 +117,7 @@ class SignToTextTask(FairseqTask):
 
     @classmethod
     def setup_task(cls, cfg, **kwargs):
-        dict_path = Path(cfg.bpe.sentencepiece_model).with_suffix('.txt')
+        dict_path = Path(cfg.bpe_sentencepiece_model).with_suffix('.txt')
         if not dict_path.is_file():
             raise FileNotFoundError(f"Dict not found: {dict_path.as_posix()}")
         tgt_dict = Dictionary.load(dict_path.as_posix())
@@ -172,6 +175,7 @@ class SignToTextTask(FairseqTask):
         data = pd.read_csv(manifest_file, sep="\t")
         text_compressor = TextCompressor(level=self.cfg.text_compression_level)
 
+        data['translation'] = data['translation'].fillna('')
         labels = [
             text_compressor.compress(row['translation'])
             for i, row in data.iterrows()

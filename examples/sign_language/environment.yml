@@ -24,6 +24,7 @@ dependencies:
   - tensorboardx=2.5.1
   - jupyterlab=3.4.4
   - sacrebleu=1.4.13
+  - srt=3.5.2
   - fairscale=0.4.3
   - sentencepiece=0.1.96
   - curl=7.83.1
@@ -36,4 +37,4 @@ dependencies:
   - pip:
       - mediapipe==0.8.10.1
       - pose-format==0.1.0
-      - vidgear=0.2.6
+      - vidgear==0.2.6
