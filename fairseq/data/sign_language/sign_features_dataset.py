@@ -182,7 +182,7 @@ class SignFeatsDataset(FairseqDataset):
         return {
             "id": torch.LongTensor(ids),
             "net_input": {
-                "src_tokens": torch.stack(collated_sources),
+                "src_tokens": torch.stack(collated_sources).float(),
                 "encoder_padding_mask": torch.stack(padding_masks),
             }
         }
