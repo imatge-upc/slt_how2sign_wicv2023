@@ -603,6 +603,66 @@ tasks:
       - "{{.DATA_DIR}}/srfmonolingual.unigram{{.VOCAB_SIZE}}.txt"
       - "{{.DATA_DIR}}/srfmonolingual.unigram{{.VOCAB_SIZE}}.vocab"
 
+  egosign:val:front:extract_mediapipe:
+    desc: Extract MediaPipe poses from the EgoSign dataset, front view. (In calcula, EGOSIGN_DIR = /mnt/gpid08/datasets/How2Sign/EgoSign)
+    preconditions:
+      - sh: "[[ -d {{.EGOSIGN_DIR}} ]]"
+        msg: Specify the EGOSIGN_DIR in the .env file.
+      - sh: test $(find {{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/val/*/ -not -path "{{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/val/_0.extra/*" -name "*rgb_front.mp4" -type f | wc -l) -eq 122
+        msg: The videos are not in this path, or it is incomplete. Find the right path.
+    vars:
+      NUM_JOBS: 8
+      FPS: 30
+    cmds:
+      - cmd: |
+              if [[ -d {{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/val/rgb_front/features/mediapipe ]]; then
+                echo "Mediapipe folder already exists"
+              fi
+        silent: True
+      - cmd: find {{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/val/*/ -not -path "{{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/val/_0.extra/*" -name "*rgb_front.mp4" -type f |
+             parallel -j {{.NUM_JOBS}} --bar \
+             'id_dir=$(basename $(dirname {}));
+             id=$(basename {} .mp4);
+             echo id_dir $id_dir;
+             echo id $id;
+             pose_file="{{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/val/rgb_front/features/mediapipe/${id}.pose";
+             echo pose_file $pose_file;
+             python ./scripts/extract_mediapipe.py --video-file {} --poses-file ${pose_file} --fps {{.FPS}} 2> /dev/null'
+    status:
+      - test $(find {{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/val/rgb_front/features/mediapipe/*/ -name "*_rgb_front.pose" -type f | wc -l) -eq 122
+    generates:
+      - "{{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/val/rgb_front/features/mediapipe/*/*_rgb_front.pose"
+
+  egosign:val:head:extract_mediapipe:
+    desc: Extract MediaPipe poses from the EgoSign dataset, head view. (In calcula, EGOSIGN_DIR = /mnt/gpid08/datasets/How2Sign/EgoSign)
+    preconditions:
+      - sh: "[[ -d {{.EGOSIGN_DIR}} ]]"
+        msg: Specify the EGOSIGN_DIR in the .env file.
+      - sh: test $(find {{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/val/*/ -not -path "{{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/val/_0.extra/*" -name "*rgb_head.mp4" -type f | wc -l) -eq 122
+        msg: The videos are not in this path, or it is incomplete. Find the right path.
+    vars:
+      NUM_JOBS: 8
+      FPS: 30
+    cmds:
+      - cmd: |
+              if [[ -d {{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/val/rgb_head/features/mediapipe ]]; then
+                echo "Mediapipe folder already exists"
+              fi
+        silent: False
+      - cmd: find {{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/val/*/ -not -path "{{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/val/_0.extra/*" -name "*rgb_front.mp4" -type f |
+             parallel -j {{.NUM_JOBS}} --bar \
+             'id_dir=$(basename $(dirname {}));
+             id=$(basename {} .mp4);
+             echo id_dir $id_dir;
+             echo id $id;
+             pose_file="{{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/val/rgb_front/features/mediapipe/${id}.pose";
+             echo pose_file $pose_file;
+             python ./scripts/extract_mediapipe.py --video-file {} --poses-file ${pose_file} --fps {{.FPS}} 2> /dev/null'
+    status:
+      - test $(find {{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/val/rgb_front/features/mediapipe/*/ -name "*_rgb_front.pose" -type f | wc -l) -eq 122
+    generates:
+      - "{{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/val/rgb_front/features/mediapipe/*/*_rgb_front.pose"
+
   train:
     preconditions:
       - sh: "[[ -d {{.DATA_DIR}} ]]"

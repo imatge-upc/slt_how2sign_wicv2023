@@ -6,12 +6,16 @@ from pathlib import Path
 
 import cv2
 
+#from pose_format.utils.holistic import load_holistic #We want to use our own implementation
+import sys
+sys.path.insert(1, '../../../../EgoSign/visualization/poseformat/') #This path will need to change if we try to run it in Amada's user
 from pose_format.utils.holistic import load_holistic
 
 
 def extract_poses(vid_file: Path, new_fps: int):
     video = cv2.VideoCapture(vid_file.as_posix())
-    fps = video.get(cv2.CAP_PROP_FPS)
+    fps = int(video.get(cv2.CAP_PROP_FPS))
+    print(f"Video FPS: {fps}")
 
     success, image = video.read()
     frames = []
@@ -25,9 +29,13 @@ def extract_poses(vid_file: Path, new_fps: int):
         width=frames[0].shape[1],
         height=frames[0].shape[0],
         depth=10,
-        progress=False,
+        progress=True,
+        additional_holistic_config={
+            'min_detection_confidence': 0.2,
+            'min_tracking_confidence': 0.3,
+        }
     )
-    poses = poses.interpolate(new_fps, kind="quadratic")
+    #poses = poses.interpolate(new_fps, kind="quadratic") #I don't think for the egosign this is necessary
     return poses
 
 
@@ -48,9 +56,7 @@ def main():
 
     assert video_file.is_file(), "The input file does not exist"
     poses_file.parent.mkdir(parents=True, exist_ok=True)
-
     poses = extract_poses(video_file, args.fps)
-
     with open(poses_file.as_posix(), "wb") as f:
         poses.write(f)
 
