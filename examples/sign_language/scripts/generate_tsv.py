@@ -39,16 +39,17 @@ def main():
     tsv_out = Path(args.tsv_out).expanduser().resolve()
 
     df_out = pd.DataFrame(columns=SignLanguageDataset.MANIFEST_COLUMNS)
-    dataset_cls = get_dataset(args.dataset)
-    for s in args.split:
-        log.info(f"Processing '{s}' split from '{args.dataset}' dataset")
-        dataset = dataset_cls(base_dir, s, args.type, args.signs_lang, args.translation_lang)
-        df_out = pd.concat((df_out, dataset.data), ignore_index=True)
+    dataset_cls = get_dataset(args.dataset) #aquí hi ha: __module__, __doc__, LANGUAGES, SPLITS, SIGNS_TYPES, SIGNS_LANGS, TRANSLATION_LANGS, __init__
+
+    #for s in args.split:
+    s = args.split[0]
+    log.info(f"Processing '{s}' split from '{args.dataset}' dataset")
+    dataset = dataset_cls(base_dir, s, args.type, args.signs_lang, args.translation_lang)
+    df_out = pd.concat((df_out, dataset.data), ignore_index=True)
 
     tsv_out.parent.mkdir(parents=True, exist_ok=True)
     save_df_to_tsv(df_out, tsv_out)
     log.info(f"Generated TSV file saved to: {tsv_out}")
-
 
 if __name__ == "__main__":
     main()

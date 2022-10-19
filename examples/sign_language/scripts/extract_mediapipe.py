@@ -8,7 +8,7 @@ import cv2
 
 #from pose_format.utils.holistic import load_holistic #We want to use our own implementation
 import sys
-sys.path.insert(1, '../../../../EgoSign/visualization/poseformat/') #This path will need to change if we try to run it in Amada's user
+sys.path.insert(1, '/home/usuaris/imatge/ltarres/EgoSign/visualization/poseformat/') #This path will need to change if we try to run it in Amada's user
 from pose_format.utils.holistic import load_holistic
 
 

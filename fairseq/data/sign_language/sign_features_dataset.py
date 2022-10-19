@@ -98,7 +98,6 @@ class SignFeatsDataset(FairseqDataset):
         
         # FIXME: This is too simplistic, we will improve it in the future
         feats_type = row['signs_type']
-
         return cls(ids, feats_files=feats_files, offsets=offsets, sizes=sizes,
                    feats_type=feats_type, **kwargs)
 
@@ -107,7 +106,6 @@ class SignFeatsDataset(FairseqDataset):
         feats_file = self.feats_files[index]
         offset = self.offsets[index]
         length = self.sizes[index]
-
         with open(feats_file, "rb") as f:
             pose = Pose.read(f.read())
 
