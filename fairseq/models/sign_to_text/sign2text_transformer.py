@@ -1,3 +1,4 @@
+import pdb
 import math
 import logging
 from pathlib import Path
@@ -153,8 +154,10 @@ class Sign2TextTransformerModel(FairseqEncoderDecoderModel):
         # if isinstance(dummy_sample['source'], Pose):
         #     feats_type = SignFeatsType.mediapipe
         #     feat_dim = dummy_sample['source'].body.data.shape[-2]
-        feats_type = SignFeatsType.mediapipe
-        feat_dim = 195
+        
+        #I don't think this is the way
+        feats_type = SignFeatsType.i3d
+        feat_dim = 1024
 
         def build_embedding(dictionary, embed_dim):
             num_embeddings = len(dictionary)
@@ -207,13 +210,15 @@ class Sign2TextTransformerEncoder(FairseqEncoder):
         if cfg.no_scale_embedding:
             self.embed_scale = 1.0
         self.padding_idx = 1
-
+        print(f'feats_type: {feats_type}')
         self.feats_type = feats_type
-        if self.feats_type == SignFeatsType.mediapipe:
-            self.feat_proj = nn.Linear(feat_dim * 3, cfg.encoder_embed_dim)
-        else:
+        #if self.feats_type == SignFeatsType.mediapipe:
+        #    self.feat_proj = nn.Linear(feat_dim * 3, cfg.encoder_embed_dim)
+        if self.feats_type == SignFeatsType.i3d:
             self.feat_proj = nn.Linear(feat_dim, cfg.encoder_embed_dim)
         
+        print(f'cfg.max_source_positions: {cfg.max_source_positions}')
+        print(f'cfg.encoder_embed_dim: {cfg.encoder_embed_dim}')
         self.embed_positions = PositionalEmbedding(
             cfg.max_source_positions, cfg.encoder_embed_dim, self.padding_idx
         )
@@ -227,12 +232,16 @@ class Sign2TextTransformerEncoder(FairseqEncoder):
             self.layer_norm = None
 
     def forward(self, src_tokens, encoder_padding_mask, return_all_hiddens=False):
-        if self.feats_type == SignFeatsType.mediapipe:
-            src_tokens = src_tokens.view(src_tokens.shape[0], src_tokens.shape[1], -1)
-        x = self.feat_proj(src_tokens).transpose(0, 1)
+        #if self.feats_type == SignFeatsType.mediapipe: #This error keeps appearing: raise AttributeError(name) from None
+        #    src_tokens = src_tokens.view(src_tokens.shape[0], src_tokens.shape[1], -1)
+        #src_tokens B x seq_len x Fs
+        x = self.feat_proj(src_tokens).transpose(0, 1) #[seq_len, batch_size, embed_dim]
+        # x: seq_len x B x H
         x = self.embed_scale * x
-
+        
+        #encoder_padding_mask: B x seq_len x Fs
         positions = self.embed_positions(encoder_padding_mask).transpose(0, 1)
+        #positions: seq_len x B x H, --> it's not, last dimension is 262144 instead of H
         x += positions
         x = self.dropout_module(x)
 

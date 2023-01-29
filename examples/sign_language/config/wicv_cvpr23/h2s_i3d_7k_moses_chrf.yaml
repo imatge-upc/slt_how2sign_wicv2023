@@ -23,25 +23,29 @@ checkpoint:
   patience: 20
 
 dataset:
-  train_subset: cvpr23.fairseq.mediapipe.train.how2sign           
-  valid_subset: cvpr23.fairseq.mediapipe.val.how2sign             
+  train_subset: cvpr23.fairseq.i3d.train.how2sign           #here i had the name of the tsv file
+  valid_subset: cvpr23.fairseq.i3d.val.how2sign           
   num_workers: 4
+  batch_size: 32
   max_tokens: 16_000                          # 640s @ 25fps
   skip_invalid_size_inputs_valid_test: True
 
 task:
   _name: sign_to_text
-  data: ${env:SAVE_DIR}
+  data: ${env:I3D_DIR}                        #check where we should put the tsv file
   max_source_positions: 1024                  # ~41s @ 25fps
   max_target_positions: 1024
-  normalization: body
+  feats_type: "i3d"
   eval_gen_config:
     beam: 5
   eval_bleu: True
+  #eval_bleu_args: '{"beam": 5, "max_len_a": 0, "max_len_b": 30, "lenpen": 1.0}'
+  pre_tokenizer: moses #Should we also do a truecaser? Check this when you can
   eval_bleu_config:
     sacrebleu_tokenizer: 13a
     sacrebleu_lowercase: False
     sacrebleu_char_level: False
+  eval_chrf: True
   eval_print_samples: True
 
 model:
@@ -72,7 +76,7 @@ optimizer:
   adam_eps: 1e-08
 
 optimization:
-  lr: [5e-04]
+  lr: [0.001]
   max_update: 40_000
   update_freq: [1]
   clip_norm: 1
@@ -82,4 +86,4 @@ lr_scheduler:
   warmup_updates: 2000
 
 bpe:
-  sentencepiece_model: ${env:SAVE_DIR}/cvpr23.train.how2sign.unigram4000.model
+  sentencepiece_model: ${env:SAVE_DIR}/cvpr23.train.how2sign.unigram7000_tokenized.model #Change the one that has the tokenized text

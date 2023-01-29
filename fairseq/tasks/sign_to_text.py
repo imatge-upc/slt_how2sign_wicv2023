@@ -15,7 +15,7 @@ from omegaconf import MISSING, II
 from fairseq import metrics, utils
 from fairseq.data import AddTargetDataset, Dictionary
 from fairseq.data.encoders.sentencepiece_bpe import SentencepieceConfig
-from fairseq.data.sign_language import SignFeatsDataset, NormType
+from fairseq.data.sign_language import SignFeatsType, SignFeatsDataset, NormType
 from fairseq.data.text_compressor import TextCompressor, TextCompressionLevel
 from fairseq.dataclass import FairseqDataclass
 from fairseq.dataclass.constants import ChoiceEnum
@@ -23,8 +23,9 @@ from fairseq.dataclass.configs import GenerationConfig
 from fairseq.scoring import build_scorer
 from fairseq.scoring.wer import WerScorerConfig
 from fairseq.scoring.bleu import SacrebleuConfig
+from fairseq.scoring.chrf import ChrFScorerConfig
 from fairseq.tasks import FairseqTask, register_task
-
+from sacremoses import MosesDetokenizer
 
 EVAL_BLEU_ORDER = 4
 
@@ -62,7 +63,12 @@ class SignToTextConfig(FairseqDataclass):
             "target texts): none/low/high (default: none). "
         },
     )
-
+    feats_type: ChoiceEnum([x.name for x in SignFeatsType]) = field(
+        default="i3d",
+        metadata={
+            "help": "type of features for the sign input data: mediapipe/i3d/CNN2d (default: i3d). "
+        },
+    )
     # Reporting metrics during training
     eval_wer: bool = field(
         default=False,
@@ -76,9 +82,21 @@ class SignToTextConfig(FairseqDataclass):
         default=False,
         metadata={"help": "compute SacreBLEU on the validation set"}
     )
+    pre_tokenizer: str = field(
+        default='moses',
+        metadata={"help": "detokenization method for BLEU scoring"}
+    )
     eval_bleu_config: SacrebleuConfig = field(
         default_factory=lambda: SacrebleuConfig("sacrebleu"),
         metadata={"help": "SacreBLEU scoring configuration"},
+    )
+    eval_chrf: bool = field(
+        default=False,
+        metadata={"help": "compute ChRF on the validation set"}
+    )
+    eval_chrf_config: ChrFScorerConfig = field(
+        default_factory=lambda: ChrFScorerConfig("chrf"),
+        metadata={"help": "Chrf scoring configuration"},
     )
     eval_gen_config: GenerationConfig = field(
         default_factory=lambda: GenerationConfig(),
@@ -91,6 +109,7 @@ class SignToTextConfig(FairseqDataclass):
 
     # Inherit from other configs
     train_subset: str = II("dataset.train_subset")
+    valid_subset: str = II("dataset.valid_subset")
     bpe_sentencepiece_model: str = II("bpe.sentencepiece_model")
 
 
@@ -99,6 +118,12 @@ class SignToTextTask(FairseqTask):
     def __init__(self, cfg, tgt_dict):
         super().__init__(cfg)
         self.tgt_dict = tgt_dict
+        
+        self.moses_tokenizer = self.build_tokenizer( #It uses sacremoses inside, similar to what they do here https://github.com/facebookresearch/fairseq/blob/b4001184f49ed0e20d619b54bb3d43088fabf990/fairseq/data/audio/speech_to_text_dataset.py#L692
+            Namespace(
+                tokenizer=self.cfg.pre_tokenizer
+            )
+        )
         self.bpe_tokenizer = self.build_bpe(
             Namespace(
                 bpe='sentencepiece',
@@ -113,6 +138,12 @@ class SignToTextTask(FairseqTask):
         if self.cfg.eval_bleu:
             self.scorers.append(
                 build_scorer(cfg.eval_bleu_config, self.tgt_dict)
+            )
+            if cfg.pre_tokenizer == 'moses':
+                self.moses_detok = MosesDetokenizer(lang='en')
+        if self.cfg.eval_chrf:
+            self.scorers.append( #check how to do this call
+                build_scorer(cfg.eval_chrf_config, self.tgt_dict)
             )
 
     @classmethod
@@ -157,7 +188,19 @@ class SignToTextTask(FairseqTask):
         root_dir = Path(self.cfg.data)
         assert root_dir.is_dir(), f"{root_dir} does not exist"
 
+        #Depending on the features type, we load the corresponding manifest file
+        #print("split", split) #cvpr23.fairseq.i3d.train.how2sign
         manifest_file = root_dir / f"{split}.tsv"
+        
+        #if SignFeatsType(self.cfg.feats_type) == SignFeatsType.keypoints:
+        #    feats_file = root_dir / f"{split}_kp.h5"
+        #elif SignFeatsType(self.cfg.feats_type) == SignFeatsType.i3d:
+        #    feats_file = root_dir / f"{split}_i3d.h5"
+        #elif SignFeatsType(self.cfg.feats_type) == SignFeatsType.CNN2d:
+            # feats_file = root_dir / f"{split}_sent.h5" #
+        #    feats_file = root_dir / f'{split}_cnn2d.h5' #mv test_sent.h5 test_cnn2d.h5
+        #else:
+        #    raise NotImplementedError("Features other than CNN2d, i3d or keypoints are not implemented")
         self.datasets[split] = SignFeatsDataset.from_manifest_file(
             manifest_file=manifest_file,
             normalization=self.cfg.normalization,
@@ -168,6 +211,14 @@ class SignToTextTask(FairseqTask):
         )
 
         if is_train_split:
+            self.datasets[split] = SignFeatsDataset.from_manifest_file(
+                manifest_file=manifest_file,
+                normalization=self.cfg.normalization,
+                data_augmentation=(self.cfg.data_augmentation and is_train_split),
+                min_sample_size=self.cfg.min_source_positions,
+                max_sample_size=self.cfg.max_source_positions,
+                shuffle=self.cfg.shuffle_dataset,
+            )
             self.datasets[split].filter_by_length(
                 self.cfg.min_source_positions,
                 self.cfg.max_source_positions,
@@ -189,13 +240,19 @@ class SignToTextTask(FairseqTask):
         )
 
         def process_label_fn(label):
+            if is_train_split:
+                if self.cfg.pre_tokenizer == 'moses':
+                    label = label.lower()
+                    label = self.moses_tokenizer.encode(label)
             return self.target_dictionary.encode_line(
                 self.bpe_tokenizer.encode(label), append_eos=False, add_if_not_exist=False
             )
 
         def label_len_fn(label):
             return len(self.bpe_tokenizer.encode(label))
-
+        
+        #Target dataset will have preprocessed + pretokenized data, and val/test will have raw data.
+        #if is_train_split:
         self.datasets[split] = AddTargetDataset(
             self.datasets[split],
             labels,
@@ -229,7 +286,8 @@ class SignToTextTask(FairseqTask):
 
     def valid_step(self, sample, model, criterion):
         loss, sample_size, logging_output = super().valid_step(sample, model, criterion)
-
+        md = MosesDetokenizer(lang='en') #I don't think we should do this here
+        
         def decode(toks):
             if hasattr(self.sequence_generator, "symbols_to_strip_from_output"):
                 to_ignore = self.sequence_generator.symbols_to_strip_from_output
@@ -241,16 +299,21 @@ class SignToTextTask(FairseqTask):
                 escape_unk=True,
                 extra_symbols_to_ignore=to_ignore
             )
+            #print(f'before doing the moses detokenization: {s}')
             if self.bpe_tokenizer:
                 s = self.bpe_tokenizer.decode(s)
+                #print(f'After bpe detokenizenization: {s}')
+            if self.moses_detok:
+                s = self.moses_detok.detokenize(s.split())
+                #print(f'After moses: {s}')
             return s
 
         if len(self.scorers) > 0:
             gen_out = self.inference_step(self.sequence_generator, [model], sample, prefix_tokens=None)
             for i in range(len(gen_out)):
-                ref_tok = utils.strip_pad(sample["target"][i], self.tgt_dict.pad()).int().cpu()
+                #ref_tok = utils.strip_pad(sample["target"][i], self.tgt_dict.pad()).int().cpu()
                 pred_tok = gen_out[i][0]["tokens"].int().cpu()
-                ref = decode(ref_tok)
+                ref = self.datasets[self.cfg.valid_subset].get_label(sample["id"][i])
                 pred = decode(pred_tok)
                 for s in self.scorers:
                     s.add_string(ref, pred)
@@ -259,7 +322,6 @@ class SignToTextTask(FairseqTask):
                 logger.info("Validation example:")
                 logger.info("H-{} {}".format(sample["id"][-1], pred))
                 logger.info("T-{} {}".format(sample["id"][-1], ref))
-
         for s in self.scorers:
             if s.cfg._name == 'wer':
                 logging_output["_wer_distance"] = s.distance
@@ -274,6 +336,9 @@ class SignToTextTask(FairseqTask):
                 for i in range(EVAL_BLEU_ORDER):
                     logging_output["_bleu_counts_" + str(i)] = sacrebleu_out.counts[i]
                     logging_output["_bleu_totals_" + str(i)] = sacrebleu_out.totals[i]
+            elif s.cfg._name == 'chrf':
+                #print(f's.cfg._name inside scorers: {s.cfg._name}')
+                logging_output["chrf"] = s.score()
             else:
                 raise NotImplemented()
 
@@ -296,6 +361,7 @@ class SignToTextTask(FairseqTask):
             return result
 
         for s in self.scorers:
+            #print(f's in self.scorers: {s}')
             if s.cfg._name == 'wer':
                 if  sum_logs("_wer_ref_len") > 0:
                     metrics.log_scalar("_wer_distance", sum_logs("_wer_distance"))
@@ -353,8 +419,21 @@ class SignToTextTask(FairseqTask):
                         return round(bleu.score, 2)
 
                     metrics.log_derived("sacrebleu", compute_bleu)
+            
+            elif s.cfg._name == 'chrf':
+                metrics.log_scalar("chrf", sum_logs("chrf"))
 
+                def compute_chrf(meters):
+                    import torch
+                    chrf = meters["chrf"]
+                    if torch.is_tensor(chrf):
+                        chrf = chrf.cpu().item()
+                    return chrf
+
+                metrics.log_derived("chrf", compute_chrf)
+                
             else:
+                print(f's.cfg._name: {s.cfg._name}')
                 raise NotImplemented()
 
     def get_dummy_sample(self):

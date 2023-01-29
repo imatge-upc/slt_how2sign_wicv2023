@@ -877,7 +877,7 @@ tasks:
     generates:
       - "{{.EGOSIGN_DIR}}/data_cvpr23/How2Sign/video_level/train/rgb_front/features/mediapipe/*_rgb_front.pose"
 
-  how2sign:generate_tsv:
+  how2sign:generate_mp_tsv:
     desc: Generate TSV files for the How2Sign dataset.
     preconditions:
       - sh: "[[ -d {{.FAIRSEQ_ROOT}} ]]"
@@ -926,10 +926,14 @@ tasks:
     generates:
       - "{{.SAVE_DIR}}/cvpr23.fairseq.mediapipe.train.how2sign.tsv"
       - "{{.SAVE_DIR}}/cvpr23.fairseq.mediapipe.dev.how2sign.tsv"
-      - "{{.SAVE_DIR}}/v.mediapipe.test.how2sign.tsv"
+      - "{{.SAVE_DIR}}/cvpr23.fairseq.mediapipe.test.how2sign.tsv"
+
+  how2sign:tokenize_tsv:
+    desc: Tokenize data to train.
+
 
   how2sign:train_sentencepiece:
-    desc: Train SentencePiece models for the WMT-SLT 22 datasets.
+    desc: Train SentencePiece models for the Hoow2Sign dataset.
     preconditions:
       - sh: "[[ -d {{.FAIRSEQ_ROOT}} ]]"
         msg: Specify the FAIRSEQ_ROOT in the .env file.
@@ -945,7 +949,7 @@ tasks:
                 --spm-prefix {{.SAVE_DIR}}/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}} \
                 --vocab-size {{.VOCAB_SIZE}} \
                 --vocab-type unigram \
-                --column translation
+                --column translation_tokenized
     status:
       - test $(cat {{.SAVE_DIR}}/cvpr23.train_how2sign.unigram{{.VOCAB_SIZE}}.vocab | wc -l) -eq {{.VOCAB_SIZE}}
       - test $(cat {{.SAVE_DIR}}/cvpr23.train_how2sign.unigram{{.VOCAB_SIZE}}.txt | wc -l) -eq $(({{.VOCAB_SIZE}}-4))
@@ -954,7 +958,81 @@ tasks:
       - "{{.SAVE_DIR}}/cvpr23.train_how2sign.unigram{{.VOCAB_SIZE}}.txt"
       - "{{.SAVE_DIR}}/cvpr23.train_how2sign.unigram{{.VOCAB_SIZE}}.vocab"
 
+  how2sign:train_sentencepiece_tokenized:
+    desc: Train SentencePiece models for the How2Sign dataset (where we have used lowercasing, moses punctuation normalization and moses tokenizer).
+    preconditions:
+      - sh: "[[ -d {{.FAIRSEQ_ROOT}} ]]"
+        msg: Specify the FAIRSEQ_ROOT in the .env file.
+      - sh: "[ ! -z {{.SAVE_DIR}} ]"
+        msg: Specify the SAVE_DIR in the .env file.
+      - sh: "[ ! -z {{.VOCAB_SIZE}} ]"
+        msg: Specify a VOCAB_SIZE.
+    cmds:
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/train_spm.py \
+                --tsv-file {{.SAVE_DIR}}/cvpr23.fairseq.mediapipe.train.how2sign.tsv \
+                --spm-prefix {{.SAVE_DIR}}/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_tokenized \
+                --vocab-size {{.VOCAB_SIZE}} \
+                --vocab-type unigram \
+                --column translation_tokenized
+    status:
+      - test $(cat {{.SAVE_DIR}}/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_tokenized.vocab | wc -l) -eq {{.VOCAB_SIZE}}
+      - test $(cat {{.SAVE_DIR}}/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_tokenized.txt | wc -l) -eq $(({{.VOCAB_SIZE}}-4))
+    generates:
+      - "{{.SAVE_DIR}}/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_tokenized.model"
+      - "{{.SAVE_DIR}}/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_tokenized.txt"
+      - "{{.SAVE_DIR}}/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_tokenized.vocab"
+
   train_slt:
+    preconditions:
+      - sh: "[[ -d {{.DATA_DIR}} ]]"
+        msg: Specify the DATA_DIR in the .env file
+      - sh: "[[ {{.SAVE_DIR}} ]]"
+        msg: Specify the SAVE_DIR in the .env file
+      - sh: "[[ {{.WANDB_ENTITY}} ]]"
+        msg: Specify the WANDB_ENTITY in the .env file
+      - sh: "[[ {{.WANDB_PROJECT}} ]]"
+        msg: Specify the WANDB_PROJECT in the .env file
+      - sh: "[ {{.NUM_GPUS}} -gt 0 ]"
+        msg: Use at least 1 GPU to train the model
+      - sh: '[ "{{.EXPERIMENT}}" ]'
+        msg: Specify a name for the EXPERIMENT
+      - sh: '[ "{{.CONFIG_DIR}}/{{.EXPERIMENT}}.yaml" ]'
+        msg: The yaml does not exist
+    vars:
+      BASE_UPDATE_FREQ:
+        sh: |
+            cat {{.CONFIG_DIR}}/{{.EXPERIMENT}}.yaml | grep "update_freq" | awk -F'[][]' '{print $2}'
+      NUM_GPUS:
+        sh: |
+            if [ "$CUDA_VISIBLE_DEVICES" ]; then
+              echo $CUDA_VISIBLE_DEVICES | sed 's/[^,]//g' | wc -c
+            else
+              echo 0
+            fi
+      UPDATE_FREQ:
+        sh: |
+            if [ {{.NUM_GPUS}} -gt 0 ]; then
+              echo $(( {{.BASE_UPDATE_FREQ}} / {{.NUM_GPUS}} ))
+            else
+              echo {{.BASE_UPDATE_FREQ}}
+            fi
+    cmds:
+      - cmd: echo "Running experiment {{.EXPERIMENT}}"
+        silent: true
+      - cmd: echo "Running experiment's file {{.CONFIG_DIR}}/{{.EXPERIMENT}}.yaml"
+        silent: true
+
+      - cmd: |
+              WANDB_NAME={{.EXPERIMENT}} \
+              fairseq-hydra-train \
+              --config-dir {{.CONFIG_DIR}} \
+              --config-name {{.EXPERIMENT}}.yaml \
+              optimization.update_freq=[{{.UPDATE_FREQ}}]
+        silent: true
+
+  train_sltd:
     preconditions:
       - sh: "[[ -d {{.DATA_DIR}} ]]"
         msg: Specify the DATA_DIR in the .env file

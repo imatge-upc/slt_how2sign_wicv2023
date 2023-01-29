@@ -13,7 +13,14 @@ import torch.nn.functional as F
 import mediapipe as mp
 from pose_format import Pose
 
-from fairseq.data import FairseqDataset
+from fairseq.data import FairseqDataset, BaseWrapperDataset, RandomCropDataset
+
+from fairseq.data.data_utils import (
+    compute_mask_indices,
+    numpy_seed
+)
+
+from fairseq.data.text_compressor import TextCompressor, TextCompressionLevel
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +33,7 @@ POSE_RM = ['LEFT_KNEE', 'RIGHT_KNEE', 'LEFT_ANKLE', 'RIGHT_ANKLE',
 POSE_POINTS = [kp.name for kp in mp_holistic.PoseLandmark if kp.name not in POSE_RM]
 
 
-# TODO: Adapt implementation for i3d and CNN2d
+# TODO: Adapt implementation for i3d and CNN2d (for phoenix)
 class SignFeatsType(str, Enum):
     mediapipe = "mediapipe"
     i3d = "i3d"
@@ -106,17 +113,21 @@ class SignFeatsDataset(FairseqDataset):
         feats_file = self.feats_files[index]
         offset = self.offsets[index]
         length = self.sizes[index]
-        with open(feats_file, "rb") as f:
-            pose = Pose.read(f.read())
+        
+        if self.feats_type == SignFeatsType.mediapipe:
+            with open(feats_file, "rb") as f:
+                pose = Pose.read(f.read())
+            frames_list = list(range(offset, offset+length))
 
-        frames_list = list(range(offset, offset+length))
+            # Fix to bypass some examples that are wrong
+            frames_list = [fr for fr in frames_list if fr < pose.body.data.shape[0]]
 
-        # Fix to bypass some examples that are wrong
-        frames_list = [fr for fr in frames_list if fr < pose.body.data.shape[0]]
+            pose.body = pose.body.select_frames(frames_list)
 
-        pose.body = pose.body.select_frames(frames_list)
-
-        pose = self.postprocess(pose)
+            pose = self.postprocess(pose)
+        elif self.feats_type == SignFeatsType.i3d:
+            with open(feats_file, "rb") as f:
+                pose = np.load(f)
 
         return {"id": index, "vid_id": _id, "source": pose}
 
@@ -148,19 +159,33 @@ class SignFeatsDataset(FairseqDataset):
         return pose.torch()
 
     def collater(self, samples):
-        max_length = max([s['source'].body.data.shape[0] for s in samples])
+        
+        if self.feats_type == SignFeatsType.mediapipe:
+            max_length = max([s['source'].body.data.shape[0] for s in samples])
+        elif self.feats_type == SignFeatsType.i3d:
+            max_length = max([s['source'].shape[0] for s in samples])
         
         ids = []
         padding_masks = []
         collated_sources = []
+        i=0
         for sample in samples:
             pose = sample['source']
 
-            if pose.body.data.shape[1] > 1:
-                logger.warning(f"More than one person in frame, keeping just the first one")
-            pose.body.data = pose.body.data[:, 0]
+            if self.feats_type == SignFeatsType.mediapipe:
+                if pose.body.data.shape[1] > 1:
+                    logger.warning(f"More than one person in frame, keeping just the first one")
+                pose.body.data = pose.body.data[:, 0]
 
-            padding_mask = (~pose.body.data.mask).sum((1,2)) > 0
+                padding_mask = (~pose.body.data.mask).sum((1,2)) > 0
+            
+            # how does the i3d padding mask look like? Everything should be false
+            elif self.feats_type == SignFeatsType.i3d:
+                #convert pose into tensor
+                pose = torch.from_numpy(pose)
+                #create a torch tensor of dimensions pose.shape filled with False
+                padding_mask = torch.zeros(pose.shape[0], dtype=torch.bool)
+            
             if padding_mask.all():
                 continue
 
@@ -169,9 +194,15 @@ class SignFeatsDataset(FairseqDataset):
             padding_masks.append(
                 F.pad(padding_mask, (0, diff_length), value=True)
             )
-            collated_sources.append(
-                F.pad(pose.body.data.data, (0, 0, 0, 0, 0, diff_length), value=0)
-            )
+            
+            if self.feats_type == SignFeatsType.mediapipe: 
+                collated_sources.append(
+                    F.pad(pose.body.data.data, (0, 0, 0, 0, 0, diff_length), value=0)
+                )
+            elif self.feats_type == SignFeatsType.i3d:
+                collated_sources.append(
+                    F.pad(pose, (0, 0, 0, diff_length), value=0)
+                )
 
         if len(collated_sources) == 0:
             return {}
@@ -198,3 +229,108 @@ class SignFeatsDataset(FairseqDataset):
             return order[::-1]
         else:
             return np.arange(len(self))
+
+# TODO: In task, if compute_mask_indices=True, create dataset of this type
+# TODO: In task, if using this, it may be useful to wrap it also with RandomCropSignFeatsDataset (remember paddings)
+class MaskSignFeatsDataset(BaseWrapperDataset):
+    def __init__(
+        self,
+        dataset: SignFeatsDataset,
+        **mask_compute_kwargs,
+        ):
+        super().__init__(dataset)
+        self.mask_compute_kwargs = mask_compute_kwargs
+        self._features_size_map = {}
+        self._C = mask_compute_kwargs["encoder_embed_dim"]
+        self._conv_feature_layers = eval(mask_compute_kwargs["conv_feature_layers"])
+
+    def _compute_mask_indices(self, dims, padding_mask):
+        # Create masks for Sign2vec pretraining
+        raise NotImplementedError("This feature is still not available")
+        B, T, C = dims
+        mask_indices, mask_channel_indices = None, None
+        if self.mask_compute_kwargs["mask_prob"] > 0:
+            mask_indices = compute_mask_indices(
+                (B, T),
+                padding_mask,
+                self.mask_compute_kwargs["mask_prob"],
+                self.mask_compute_kwargs["mask_length"],
+                self.mask_compute_kwargs["mask_selection"],
+                self.mask_compute_kwargs["mask_other"],
+                min_masks=2,
+                no_overlap=self.mask_compute_kwargs["no_mask_overlap"],
+                min_space=self.mask_compute_kwargs["mask_min_space"],
+            )
+            mask_indices = torch.from_numpy(mask_indices)
+        if self.mask_compute_kwargs["mask_channel_prob"] > 0:
+            mask_channel_indices = compute_mask_indices(
+                (B, C),
+                None,
+                self.mask_compute_kwargs["mask_channel_prob"],
+                self.mask_compute_kwargs["mask_channel_length"],
+                self.mask_compute_kwargs["mask_channel_selection"],
+                self.mask_compute_kwargs["mask_channel_other"],
+                no_overlap=self.mask_compute_kwargs["no_mask_channel_overlap"],
+                min_space=self.mask_compute_kwargs["mask_channel_min_space"],
+            )
+            mask_channel_indices = (
+                torch.from_numpy(mask_channel_indices).unsqueeze(1).expand(-1, T, -1)
+            )
+
+        return mask_indices, mask_channel_indices
+
+    def _get_mask_indices_dims(self, size, padding=0, dilation=1):
+        raise NotImplementedError("This feature is still not available")
+        if size not in self._features_size_map:
+            L_in = size
+            for (_, kernel_size, stride) in self._conv_feature_layers:
+                L_out = L_in + 2 * padding - dilation * (kernel_size - 1) - 1
+                L_out = 1 + L_out // stride
+                L_in = L_out
+            self._features_size_map[size] = L_out
+        return self._features_size_map[size]
+
+    def collater(self, samples):
+        out = self.dataset.collater(samples)
+        raise NotImplementedError("This feature is still not available")
+
+        B = out["net_input"]["source"].size(0)
+        T = self._get_mask_indices_dims(out["net_input"]["source"].size(-2))
+        padding_mask_reshaped = out["net_input"]["padding_mask"].clone()
+        extra = padding_mask_reshaped.size(1) % T
+        if extra > 0:
+            padding_mask_reshaped = padding_mask_reshaped[:, :-extra]
+        padding_mask_reshaped = padding_mask_reshaped.view(
+            padding_mask_reshaped.size(0), T, -1
+        )
+        padding_mask_reshaped = padding_mask_reshaped.all(-1)
+        out["net_input"]["padding_count"] = padding_mask_reshaped.sum(-1).max().item()
+        mask_indices, mask_channel_indices = self._compute_mask_indices(
+            (B, T, self._C),
+            padding_mask_reshaped,
+        )
+        out["net_input"]["mask_indices"] = mask_indices
+        out["net_input"]["mask_channel_indices"] = mask_channel_indices
+        out["sample_size"] = mask_indices.sum().item()
+        
+        return out
+
+
+class RandomCropSignFeatsDataset(RandomCropDataset):
+    def __init__(
+        self,
+        dataset: SignFeatsDataset,
+        truncation_length: int,
+        **kwargs,
+    ):
+        super().__init__(dataset, truncation_length, **kwargs)
+
+    def __getitem__(self, index):
+        with numpy_seed(self.seed, self.epoch, index):
+            item = self.dataset[index]
+            item_len = item["source"].size(0)
+            excess = item_len - self.truncation_length
+            if excess > 0:
+                start_idx = np.random.randint(0, excess)
+                item["source"] = item["source"][start_idx : start_idx + self.truncation_length]
+            return item
