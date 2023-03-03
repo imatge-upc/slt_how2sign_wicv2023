@@ -153,7 +153,6 @@ tasks:
       - "{{.DATA_DIR}}/phoenix.unigram{{.VOCAB_SIZE}}.txt"
       - "{{.DATA_DIR}}/phoenix.unigram{{.VOCAB_SIZE}}.vocab"
 
-
   wmt-slt22:focusnews:download:
     desc: Download the WMT-SLT 22 FocusNews dataset.
     preconditions:
@@ -928,12 +927,9 @@ tasks:
       - "{{.SAVE_DIR}}/cvpr23.fairseq.mediapipe.dev.how2sign.tsv"
       - "{{.SAVE_DIR}}/cvpr23.fairseq.mediapipe.test.how2sign.tsv"
 
-  how2sign:tokenize_tsv:
-    desc: Tokenize data to train.
-
 
   how2sign:train_sentencepiece:
-    desc: Train SentencePiece models for the Hoow2Sign dataset.
+    desc: Train SentencePiece models for the How2Sign dataset.
     preconditions:
       - sh: "[[ -d {{.FAIRSEQ_ROOT}} ]]"
         msg: Specify the FAIRSEQ_ROOT in the .env file.
@@ -949,7 +945,8 @@ tasks:
                 --spm-prefix {{.SAVE_DIR}}/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}} \
                 --vocab-size {{.VOCAB_SIZE}} \
                 --vocab-type unigram \
-                --column translation_tokenized
+                --column translation_tokenized \
+                --preprocess True
     status:
       - test $(cat {{.SAVE_DIR}}/cvpr23.train_how2sign.unigram{{.VOCAB_SIZE}}.vocab | wc -l) -eq {{.VOCAB_SIZE}}
       - test $(cat {{.SAVE_DIR}}/cvpr23.train_how2sign.unigram{{.VOCAB_SIZE}}.txt | wc -l) -eq $(({{.VOCAB_SIZE}}-4))
@@ -972,10 +969,11 @@ tasks:
               PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
               python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/train_spm.py \
                 --tsv-file {{.SAVE_DIR}}/cvpr23.fairseq.mediapipe.train.how2sign.tsv \
-                --spm-prefix {{.SAVE_DIR}}/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_tokenized \
+                --spm-prefix {{.SAVE_DIR}}/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_lowercased \
                 --vocab-size {{.VOCAB_SIZE}} \
                 --vocab-type unigram \
-                --column translation_tokenized
+                --lowercase True \
+                --column translation
     status:
       - test $(cat {{.SAVE_DIR}}/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_tokenized.vocab | wc -l) -eq {{.VOCAB_SIZE}}
       - test $(cat {{.SAVE_DIR}}/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_tokenized.txt | wc -l) -eq $(({{.VOCAB_SIZE}}-4))
@@ -983,6 +981,10 @@ tasks:
       - "{{.SAVE_DIR}}/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_tokenized.model"
       - "{{.SAVE_DIR}}/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_tokenized.txt"
       - "{{.SAVE_DIR}}/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_tokenized.vocab"
+  
+  greet:
+    cmds:
+      - cmd: echo "Testing, {{.DATA_DIR}}!"
 
   train_slt:
     preconditions:
@@ -1030,7 +1032,7 @@ tasks:
               --config-dir {{.CONFIG_DIR}} \
               --config-name {{.EXPERIMENT}}.yaml \
               optimization.update_freq=[{{.UPDATE_FREQ}}]
-        silent: true
+        silent: false
 
   train_sltd:
     preconditions:
@@ -1046,12 +1048,12 @@ tasks:
         msg: Use at least 1 GPU to train the model
       - sh: '[ "{{.EXPERIMENT}}" ]'
         msg: Specify a name for the EXPERIMENT
-      - sh: '[ "{{.CONFIG_DIR}}/{{.EXPERIMENT}}.yaml" ]'
+      - sh: '[ "{{.CONFIG_DIR_TD}}/{{.EXPERIMENT}}.yaml" ]'
         msg: The yaml does not exist
     vars:
       BASE_UPDATE_FREQ:
         sh: |
-            cat {{.CONFIG_DIR}}/{{.EXPERIMENT}}.yaml | grep "update_freq" | awk -F'[][]' '{print $2}'
+            cat {{.CONFIG_DIR_TD}}/{{.EXPERIMENT}}.yaml | grep "update_freq" | awk -F'[][]' '{print $2}'
       NUM_GPUS:
         sh: |
             if [ "$CUDA_VISIBLE_DEVICES" ]; then
@@ -1069,13 +1071,13 @@ tasks:
     cmds:
       - cmd: echo "Running experiment {{.EXPERIMENT}}"
         silent: true
-      - cmd: echo "Running experiment's file {{.CONFIG_DIR}}/{{.EXPERIMENT}}.yaml"
+      - cmd: echo "Running experiment's file {{.CONFIG_DIR_TD}}/{{.EXPERIMENT}}.yaml"
         silent: true
 
       - cmd: |
               WANDB_NAME={{.EXPERIMENT}} \
               fairseq-hydra-train \
-              --config-dir {{.CONFIG_DIR}} \
+              --config-dir {{.CONFIG_DIR_TD}} \
               --config-name {{.EXPERIMENT}}.yaml \
               optimization.update_freq=[{{.UPDATE_FREQ}}]
         silent: true
@@ -1101,7 +1103,7 @@ tasks:
 
       - cmd: |
               mkdir -p $(dirname "{{.OUT_FILE}}")
-              fairseq-generate {{.DATA_DIR}} \
+              fairseq-generate {{.I3D_DIR}} \
               --path {{.CKPT_FILE}} \
               --task sign_to_text \
               --gen-subset {{.SUBSET}} \
@@ -1114,8 +1116,9 @@ tasks:
               --sacrebleu \
               --sacrebleu-tokenizer 13a \
               --bpe sentencepiece \
-              --sentencepiece-model {{.DATA_DIR}}/{{.SPM_MODEL}} > {{.OUT_FILE}}
-        silent: true
+              --sentencepiece-model {{.SPM_MODEL}} \
+              --skip-invalid-size-inputs-valid-test > {{.OUT_FILE}}
+        silent: false
     vars:
       SEED: 48151623
       MAX_SOURCE_POSITIONS: 1024

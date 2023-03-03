@@ -10,6 +10,7 @@ from tempfile import NamedTemporaryFile
 import pandas as pd
 
 from examples.speech_to_text.data_utils import gen_vocab
+from sacremoses import MosesTokenizer
 
 log = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ def parse_args():
     parser.add_argument("--vocab-type", default="unigram", type=str,
                         choices=["bpe", "unigram", "char", "word"])
     parser.add_argument("--column", default="translation", type=str)
+    parser.add_argument("--lowercase", default=False, type=bool)
 
     args = parser.parse_args()
 
@@ -30,15 +32,20 @@ def parse_args():
 
 def main():
     args = parse_args()
-
+    
     sentences = []
     for tsv_file in args.tsv_file:
         tsv_file = Path(tsv_file).expanduser().resolve()
         df = pd.read_csv(tsv_file, sep='\t')
         sentences.extend(df[args.column].to_list())
+    
+    moses_tokenizer = MosesTokenizer(df['translation_lang'][0])
 
     with NamedTemporaryFile(mode="w") as f:
         for sent in sentences:
+            if args.lowercase:
+                sent = sent.lower()
+            #sent = moses_tokenizer.tokenize(sent, return_str=True) #We realized we don't need this.
             f.write(sent + "\n")
 
         gen_vocab(

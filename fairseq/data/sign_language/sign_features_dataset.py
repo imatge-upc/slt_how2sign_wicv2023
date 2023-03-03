@@ -10,7 +10,6 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 
-import mediapipe as mp
 from pose_format import Pose
 
 from fairseq.data import FairseqDataset, BaseWrapperDataset, RandomCropDataset
@@ -24,27 +23,17 @@ from fairseq.data.text_compressor import TextCompressor, TextCompressionLevel
 
 logger = logging.getLogger(__name__)
 
-mp_holistic = mp.solutions.holistic
-FACEMESH_CONTOURS_POINTS = [
-    str(p) for p in sorted(set([p for p_tup in list(mp_holistic.FACEMESH_CONTOURS) for p in p_tup]))
-]
-POSE_RM = ['LEFT_KNEE', 'RIGHT_KNEE', 'LEFT_ANKLE', 'RIGHT_ANKLE',
-           'LEFT_HEEL', 'RIGHT_HEEL', 'LEFT_FOOT_INDEX', 'RIGHT_FOOT_INDEX']
-POSE_POINTS = [kp.name for kp in mp_holistic.PoseLandmark if kp.name not in POSE_RM]
-
-
-# TODO: Adapt implementation for i3d and CNN2d (for phoenix)
 class SignFeatsType(str, Enum):
     mediapipe = "mediapipe"
+    openpose = "openpose"
     i3d = "i3d"
     CNN2d = "CNN2d"
-
 
 class NormType(str, Enum):
     body = "body"
     kp_wise = "kp_wise"
     global_xyz = "global_xyz"
-
+    normalize = "normalize" #to add the same normalizaiton as original TD
 
 class SignFeatsDataset(FairseqDataset):
     def __init__(
@@ -68,7 +57,7 @@ class SignFeatsDataset(FairseqDataset):
         self.offsets = offsets
         self.sizes = sizes
         self.feats_type = feats_type
-        self.normalization = normalization
+        self.normalization = normalization #Check the normalization that it is doing here...
         self.data_augmentation = data_augmentation
         self.min_sample_size = min_sample_size
         self.max_sample_size = (
@@ -123,11 +112,11 @@ class SignFeatsDataset(FairseqDataset):
             frames_list = [fr for fr in frames_list if fr < pose.body.data.shape[0]]
 
             pose.body = pose.body.select_frames(frames_list)
-
             pose = self.postprocess(pose)
-        elif self.feats_type == SignFeatsType.i3d:
+        elif self.feats_type == SignFeatsType.i3d or self.feats_type == SignFeatsType.openpose: #Check what are openposes stored as
             with open(feats_file, "rb") as f:
                 pose = np.load(f)
+            pose = self.postprocess(pose)
 
         return {"id": index, "vid_id": _id, "source": pose}
 
@@ -135,40 +124,62 @@ class SignFeatsDataset(FairseqDataset):
         return len(self.sizes)
 
     def postprocess(self, pose):
-        pose = pose.get_components(
-            ["FACE_LANDMARKS", "POSE_LANDMARKS", "LEFT_HAND_LANDMARKS", "RIGHT_HAND_LANDMARKS"],
-            {"FACE_LANDMARKS": FACEMESH_CONTOURS_POINTS, "POSE_LANDMARKS": POSE_POINTS}
-        )
-
-        if self.normalization == NormType.body:
-            normalize_info = pose.header.normalization_info(
-                p1=("POSE_LANDMARKS", "RIGHT_SHOULDER"),
-                p2=("POSE_LANDMARKS", "LEFT_SHOULDER")
+        
+        #
+        if SignFeatsType[self.feats_type] in [SignFeatsType.mediapipe, SignFeatsType.openpose]:
+            import mediapipe as mp
+            mp_holistic = mp.solutions.holistic
+            FACEMESH_CONTOURS_POINTS = [
+                str(p) for p in sorted(set([p for p_tup in list(mp_holistic.FACEMESH_CONTOURS) for p in p_tup]))
+            ]
+            POSE_RM = ['LEFT_KNEE', 'RIGHT_KNEE', 'LEFT_ANKLE', 'RIGHT_ANKLE',
+                    'LEFT_HEEL', 'RIGHT_HEEL', 'LEFT_FOOT_INDEX', 'RIGHT_FOOT_INDEX']
+            POSE_POINTS = [kp.name for kp in mp_holistic.PoseLandmark if kp.name not in POSE_RM]
+            pose = pose.get_components(
+                ["FACE_LANDMARKS", "POSE_LANDMARKS", "LEFT_HAND_LANDMARKS", "RIGHT_HAND_LANDMARKS"],
+                {"FACE_LANDMARKS": FACEMESH_CONTOURS_POINTS, "POSE_LANDMARKS": POSE_POINTS}
             )
-            pose.normalize(normalize_info)
-        elif self.normalization == NormType.kp_wise:
-            mean, std = pose.normalize_distribution(axis=(0, 1))
-        elif self.normalization == NormType.global_xyz:
-            mean, std = pose.normalize_distribution(axis=(0, 1, 2))
+
+            if self.normalization == NormType.body:
+                normalize_info = pose.header.normalization_info(
+                    p1=("POSE_LANDMARKS", "RIGHT_SHOULDER"),
+                    p2=("POSE_LANDMARKS", "LEFT_SHOULDER")
+                )
+                pose.normalize(normalize_info)
+            elif self.normalization == NormType.kp_wise:
+                mean, std = pose.normalize_distribution(axis=(0, 1))
+            elif self.normalization == NormType.global_xyz:
+                mean, std = pose.normalize_distribution(axis=(0, 1, 2))
+            else:
+                pass
+            '''
+            with torch.no_grad():
+                feats_norm_split = F.layer_norm(feats_split, feats_split.shape[1:])
+            feats = feats_norm_split.permute(1, 2, 0).reshape(-1, n_feats * 3).contiguous()'''
+            if self.data_augmentation:
+                pose = pose.augment2d()
+            pose = pose.torch()
+                
+        elif (SignFeatsType[self.feats_type] in [SignFeatsType.i3d, SignFeatsType.CNN2d]):
+            pose = torch.from_numpy(pose)
+            #with torch.no_grad(): #removing this improves the results!
+            #    pose = F.layer_norm(pose.float(), pose.shape)
         else:
-            raise ValueError(f"Unknown normalization '{self.normalization}'")
-
-        if self.data_augmentation:
-            pose = pose.augment2d()
-
-        return pose.torch()
+            raise NotImplementedError(f'Using {self.feats_type} which is not SignFeatsType.i3d'
+                                      ' nor SignFeatsType.mediapipe nor SignFeatsType.openpose'
+                                      ' nor SignFeatsType.2dCNN '
+                                      )
+        return pose
 
     def collater(self, samples):
-        
         if self.feats_type == SignFeatsType.mediapipe:
             max_length = max([s['source'].body.data.shape[0] for s in samples])
-        elif self.feats_type == SignFeatsType.i3d:
+        elif (self.feats_type == SignFeatsType.i3d) or (self.feats_type == SignFeatsType.openpose):
             max_length = max([s['source'].shape[0] for s in samples])
         
         ids = []
         padding_masks = []
         collated_sources = []
-        i=0
         for sample in samples:
             pose = sample['source']
 
@@ -179,11 +190,7 @@ class SignFeatsDataset(FairseqDataset):
 
                 padding_mask = (~pose.body.data.mask).sum((1,2)) > 0
             
-            # how does the i3d padding mask look like? Everything should be false
             elif self.feats_type == SignFeatsType.i3d:
-                #convert pose into tensor
-                pose = torch.from_numpy(pose)
-                #create a torch tensor of dimensions pose.shape filled with False
                 padding_mask = torch.zeros(pose.shape[0], dtype=torch.bool)
             
             if padding_mask.all():

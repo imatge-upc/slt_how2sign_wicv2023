@@ -14,7 +14,7 @@ from omegaconf import MISSING, II
 
 from fairseq import metrics, utils
 from fairseq.data import AddTargetDataset, Dictionary
-from fairseq.data.encoders.sentencepiece_bpe import SentencepieceConfig
+#from fairseq.data.encoders.sentencepiece_bpe import SentencepieceConfig
 from fairseq.data.sign_language import SignFeatsType, SignFeatsDataset, NormType
 from fairseq.data.text_compressor import TextCompressor, TextCompressionLevel
 from fairseq.dataclass import FairseqDataclass
@@ -26,6 +26,7 @@ from fairseq.scoring.bleu import SacrebleuConfig
 from fairseq.scoring.chrf import ChrFScorerConfig
 from fairseq.tasks import FairseqTask, register_task
 from sacremoses import MosesDetokenizer
+import truecase
 
 EVAL_BLEU_ORDER = 4
 
@@ -66,7 +67,7 @@ class SignToTextConfig(FairseqDataclass):
     feats_type: ChoiceEnum([x.name for x in SignFeatsType]) = field(
         default="i3d",
         metadata={
-            "help": "type of features for the sign input data: mediapipe/i3d/CNN2d (default: i3d). "
+            "help": "type of features for the sign input data: mediapipe/i3d/CNN2d/openpose (default: i3d). "
         },
     )
     # Reporting metrics during training
@@ -97,6 +98,22 @@ class SignToTextConfig(FairseqDataclass):
     eval_chrf_config: ChrFScorerConfig = field(
         default_factory=lambda: ChrFScorerConfig("chrf"),
         metadata={"help": "Chrf scoring configuration"},
+    )
+    eval_reducedBLEU: bool = field(
+        default=False,
+        metadata={"help": "compute reducedBLEU on the validation set"}
+    )
+    eval_reducedBLEU_config: SacrebleuConfig = field(
+        default_factory=lambda: SacrebleuConfig("sacrebleu"), 
+        metadata={"help": "SacreBLEU scoring configuration"},
+    )
+    eval_reducedchrf: bool = field(
+        default=False,
+        metadata={"help": "compute reduced ChRF on the validation set"}
+    )
+    eval_reducedchrf_config: ChrFScorerConfig = field(
+        default_factory=lambda: ChrFScorerConfig("chrf"),
+        metadata={"help": "Reduced Chrf scoring configuration"},
     )
     eval_gen_config: GenerationConfig = field(
         default_factory=lambda: GenerationConfig(),
@@ -142,9 +159,24 @@ class SignToTextTask(FairseqTask):
             if cfg.pre_tokenizer == 'moses':
                 self.moses_detok = MosesDetokenizer(lang='en')
         if self.cfg.eval_chrf:
-            self.scorers.append( #check how to do this call
+            self.scorers.append(
                 build_scorer(cfg.eval_chrf_config, self.tgt_dict)
             )
+        if self.cfg.eval_reducedBLEU:
+            self.scorers.append(
+                build_scorer(cfg.eval_reducedBLEU_config, self.tgt_dict)
+            )
+            self.scorers[-1].cfg._name = "reducedBLEU"
+            if cfg.pre_tokenizer == 'moses':
+                self.moses_detok = MosesDetokenizer(lang='en')
+        if self.cfg.eval_reducedchrf:
+            self.scorers.append(
+                build_scorer(cfg.eval_reducedchrf_config, self.tgt_dict)
+            )
+            self.scorers[-1].cfg._name = "reducedchrf"
+            if cfg.pre_tokenizer == 'moses':
+                self.moses_detok = MosesDetokenizer(lang='en')
+            
 
     @classmethod
     def setup_task(cls, cfg, **kwargs):
@@ -223,6 +255,7 @@ class SignToTextTask(FairseqTask):
                 self.cfg.min_source_positions,
                 self.cfg.max_source_positions,
             )
+        #import pdb; pdb.set_trace() #Adding this to see if I can solve the issue for decoding
         data = pd.read_csv(manifest_file, sep="\t")
         text_compressor = TextCompressor(level=self.cfg.text_compression_level)
 
@@ -240,10 +273,9 @@ class SignToTextTask(FairseqTask):
         )
 
         def process_label_fn(label):
-            if is_train_split:
-                if self.cfg.pre_tokenizer == 'moses':
-                    label = label.lower()
-                    label = self.moses_tokenizer.encode(label)
+            if self.cfg.pre_tokenizer == 'moses':
+                label = label.lower()
+                #label = self.moses_tokenizer.encode(label)
             return self.target_dictionary.encode_line(
                 self.bpe_tokenizer.encode(label), append_eos=False, add_if_not_exist=False
             )
@@ -251,7 +283,7 @@ class SignToTextTask(FairseqTask):
         def label_len_fn(label):
             return len(self.bpe_tokenizer.encode(label))
         
-        #Target dataset will have preprocessed + pretokenized data, and val/test will have raw data.
+        #Target dataset will have preprocessed + tokenized data, and val/test will have raw data.
         #if is_train_split:
         self.datasets[split] = AddTargetDataset(
             self.datasets[split],
@@ -286,8 +318,11 @@ class SignToTextTask(FairseqTask):
 
     def valid_step(self, sample, model, criterion):
         loss, sample_size, logging_output = super().valid_step(sample, model, criterion)
-        md = MosesDetokenizer(lang='en') #I don't think we should do this here
-        
+        #md = MosesDetokenizer(lang='en') #I don't think we should do this here
+        blacklisted_words_path = '/home/usuaris/imatge/ltarres/sign2vec/fairseq-internal/examples/sign_language/scripts/blacklisted_words.txt'
+        with open(blacklisted_words_path, 'r') as file:
+            blacklisted_words = file.read().split("\n")
+
         def decode(toks):
             if hasattr(self.sequence_generator, "symbols_to_strip_from_output"):
                 to_ignore = self.sequence_generator.symbols_to_strip_from_output
@@ -299,13 +334,11 @@ class SignToTextTask(FairseqTask):
                 escape_unk=True,
                 extra_symbols_to_ignore=to_ignore
             )
-            #print(f'before doing the moses detokenization: {s}')
             if self.bpe_tokenizer:
                 s = self.bpe_tokenizer.decode(s)
-                #print(f'After bpe detokenizenization: {s}')
             if self.moses_detok:
-                s = self.moses_detok.detokenize(s.split())
-                #print(f'After moses: {s}')
+                #s = self.moses_detok.detokenize(s.split())
+                s = truecase.get_true_case(s)
             return s
 
         if len(self.scorers) > 0:
@@ -313,10 +346,21 @@ class SignToTextTask(FairseqTask):
             for i in range(len(gen_out)):
                 #ref_tok = utils.strip_pad(sample["target"][i], self.tgt_dict.pad()).int().cpu()
                 pred_tok = gen_out[i][0]["tokens"].int().cpu()
-                ref = self.datasets[self.cfg.valid_subset].get_label(sample["id"][i])
+                ref = self.datasets[self.cfg.valid_subset].get_label(sample["id"][i]) #notice here that there is no postprocessing
                 pred = decode(pred_tok)
                 for s in self.scorers:
-                    s.add_string(ref, pred)
+                    if s.cfg._name == 'reducedBLEU' or s.cfg._name == 'reducedchrf':
+                        no_blacklisted_pred = [word for word in pred.translate(str.maketrans('', '', '!"#$%&\()*+,-./:;<=>?@[\\]^_`{|}~')).split(' ') if word not in blacklisted_words]
+                        no_blacklisted_ref = [word for word in ref.translate(str.maketrans('', '', '!"#$%&\()*+,-./:;<=>?@[\\]^_`{|}~')).split(' ') if word not in blacklisted_words]
+                        
+                        if len(no_blacklisted_pred) == 0:#If the list is empty, we add a space to avoid errors
+                            no_blacklisted_pred.append(' ')
+                        if len(no_blacklisted_ref) == 0:
+                            no_blacklisted_ref.append(' ')
+                            
+                        s.add_string(' '.join(no_blacklisted_ref), ' '.join(no_blacklisted_pred))
+                    else:
+                        s.add_string(ref, pred)
 
             if self.cfg.eval_print_samples:
                 logger.info("Validation example:")
@@ -337,8 +381,17 @@ class SignToTextTask(FairseqTask):
                     logging_output["_bleu_counts_" + str(i)] = sacrebleu_out.counts[i]
                     logging_output["_bleu_totals_" + str(i)] = sacrebleu_out.totals[i]
             elif s.cfg._name == 'chrf':
-                #print(f's.cfg._name inside scorers: {s.cfg._name}')
                 logging_output["chrf"] = s.score()
+            elif s.cfg._name == 'reducedBLEU':
+                reduced_sacrebleu_out = s._score()
+                logging_output["_reduced_bleu_sys_len"] = reduced_sacrebleu_out.sys_len
+                logging_output["_reduced_bleu_ref_len"] = reduced_sacrebleu_out.ref_len
+                assert len(reduced_sacrebleu_out.counts) == EVAL_BLEU_ORDER
+                for i in range(EVAL_BLEU_ORDER):
+                    logging_output["_reduced_bleu_counts_" + str(i)] = reduced_sacrebleu_out.counts[i]
+                    logging_output["_reduced_bleu_totals_" + str(i)] = reduced_sacrebleu_out.totals[i]
+            elif s.cfg._name == 'reducedchrf':
+                logging_output["reducedchrf"] = s.score() #TODO: fix this, I think it is empty. Finnd out why
             else:
                 raise NotImplemented()
 
@@ -360,10 +413,10 @@ class SignToTextTask(FairseqTask):
                 result = result.cpu()
             return result
 
+        #Check how to only do this for validation
         for s in self.scorers:
-            #print(f's in self.scorers: {s}')
             if s.cfg._name == 'wer':
-                if  sum_logs("_wer_ref_len") > 0:
+                if sum_logs("_wer_ref_len") > 0:
                     metrics.log_scalar("_wer_distance", sum_logs("_wer_distance"))
                     metrics.log_scalar("_wer_ref_len", sum_logs("_wer_ref_len"))
 
@@ -382,7 +435,6 @@ class SignToTextTask(FairseqTask):
                 for i in range(EVAL_BLEU_ORDER):
                     counts.append(sum_logs("_bleu_counts_" + str(i)))
                     totals.append(sum_logs("_bleu_totals_" + str(i)))
-
                 if max(totals) > 0:
                     # log counts as numpy arrays -- log_scalar will sum them correctly
                     metrics.log_scalar("_bleu_counts", np.array(counts))
@@ -417,23 +469,71 @@ class SignToTextTask(FairseqTask):
                             **smooth,
                         )
                         return round(bleu.score, 2)
-
                     metrics.log_derived("sacrebleu", compute_bleu)
             
             elif s.cfg._name == 'chrf':
                 metrics.log_scalar("chrf", sum_logs("chrf"))
-
                 def compute_chrf(meters):
                     import torch
                     chrf = meters["chrf"]
                     if torch.is_tensor(chrf):
                         chrf = chrf.cpu().item()
                     return chrf
-
                 metrics.log_derived("chrf", compute_chrf)
-                
+            
+            elif s.cfg._name == 'reducedBLEU':
+                from nltk.translate.bleu_score import sentence_bleu #Check where I need to put this:
+                #I think I have the machine generated and reference in other place
+                counts, totals = [], []
+                for i in range(EVAL_BLEU_ORDER):
+                    counts.append(sum_logs("_reduced_bleu_counts_" + str(i)))
+                    totals.append(sum_logs("_reduced_bleu_totals_" + str(i)))
+                if max(totals) > 0:
+                    metrics.log_scalar("_reduced_bleu_counts", np.array(counts))
+                    metrics.log_scalar("_reduced_bleu_totals", np.array(totals))
+                    metrics.log_scalar("_reduced_bleu_sys_len", sum_logs("_bleu_sys_len"))
+                    metrics.log_scalar("_reduced_bleu_ref_len", sum_logs("_bleu_ref_len"))
+
+                    def compute_reduced_bleu(meters):
+                        import inspect
+                        import torch
+
+                        try:
+                            from sacrebleu.metrics import BLEU
+                            comp_bleu = BLEU.compute_bleu
+                        except ImportError:
+                            # compatibility API for sacrebleu 1.x
+                            import sacrebleu
+                            comp_bleu = sacrebleu.compute_bleu
+
+                        fn_sig = inspect.getfullargspec(comp_bleu)[0]
+                        if "smooth_method" in fn_sig:
+                            smooth = {"smooth_method": "exp"}
+                        else:
+                            smooth = {"smooth": "exp"}
+                        bleu = comp_bleu(
+                            correct=meters["_reduced_bleu_counts"].sum,
+                            total=meters["_reduced_bleu_totals"].sum,
+                            sys_len=meters["_reduced_bleu_sys_len"].sum if torch.is_tensor(meters["_reduced_bleu_sys_len"].sum) == False else meters["_reduced_bleu_sys_len"].sum.long().item(),
+                            ref_len=meters["_reduced_bleu_ref_len"].sum if torch.is_tensor(meters["_reduced_bleu_ref_len"].sum) == False else meters["_reduced_bleu_ref_len"].sum.long().item(),
+                            **smooth,
+                        )
+                        aux_correct = meters["_reduced_bleu_counts"].sum
+                        aux_total = meters["_reduced_bleu_totals"].sum
+                        aux_sys_len = meters["_reduced_bleu_sys_len"].sum
+                        aux_ref_len = meters["_reduced_bleu_ref_len"].sum
+                        return round(bleu.score, 2)
+                    metrics.log_derived("reduced_sacrebleu", compute_reduced_bleu)
+            elif s.cfg._name == 'reducedchrf':
+                metrics.log_scalar("reducedchrf", sum_logs("reducedchrf"))
+                def compute_chrf(meters):
+                    import torch
+                    chrf = meters["reducedchrf"]
+                    if torch.is_tensor(chrf):
+                        chrf = chrf.cpu().item()
+                    return chrf
+                metrics.log_derived("reducedchrf", compute_chrf)
             else:
-                print(f's.cfg._name: {s.cfg._name}')
                 raise NotImplemented()
 
     def get_dummy_sample(self):

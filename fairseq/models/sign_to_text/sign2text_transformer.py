@@ -104,6 +104,7 @@ class Sign2TextTransformerConfig(FairseqDataclass):
     )
     max_source_positions: int = II("task.max_source_positions")
     max_target_positions: int = II("task.max_target_positions")
+    feats_type: ChoiceEnum([x.name for x in SignFeatsType]) = II("task.feats_type")
 
 
 @register_model("sign2text_transformer", dataclass=Sign2TextTransformerConfig)
@@ -138,7 +139,7 @@ class Sign2TextTransformerModel(FairseqEncoderDecoderModel):
                     f"skipped pretraining because {pretraining_path} does not exist"
                 )
             else:
-                encoder = checkpoint_utils.load_pretrained_component_from_model(
+                decoder = checkpoint_utils.load_pretrained_component_from_model(
                     component=decoder, checkpoint=pretraining_path
                 )
                 logger.info(f"loaded pretrained decoder from: {pretraining_path}")
@@ -156,9 +157,11 @@ class Sign2TextTransformerModel(FairseqEncoderDecoderModel):
         #     feat_dim = dummy_sample['source'].body.data.shape[-2]
         
         #I don't think this is the way
-        feats_type = SignFeatsType.i3d
-        feat_dim = 1024
-
+        if cfg.feats_type == SignFeatsType.i3d:
+            feat_dim = 1024
+        elif cfg.feats_type == SignFeatsType.mediapipe:
+            feat_dim = 195
+        
         def build_embedding(dictionary, embed_dim):
             num_embeddings = len(dictionary)
             padding_idx = dictionary.pad()
@@ -167,7 +170,7 @@ class Sign2TextTransformerModel(FairseqEncoderDecoderModel):
         decoder_embed_tokens = build_embedding(
             task.target_dictionary, cfg.decoder_embed_dim
         )
-        encoder = cls.build_encoder(cfg, feats_type, feat_dim)
+        encoder = cls.build_encoder(cfg, cfg.feats_type, feat_dim)
         decoder = cls.build_decoder(cfg, task, decoder_embed_tokens)
         return cls(encoder, decoder)
 
@@ -210,15 +213,13 @@ class Sign2TextTransformerEncoder(FairseqEncoder):
         if cfg.no_scale_embedding:
             self.embed_scale = 1.0
         self.padding_idx = 1
-        print(f'feats_type: {feats_type}')
-        self.feats_type = feats_type
-        #if self.feats_type == SignFeatsType.mediapipe:
-        #    self.feat_proj = nn.Linear(feat_dim * 3, cfg.encoder_embed_dim)
-        if self.feats_type == SignFeatsType.i3d:
-            self.feat_proj = nn.Linear(feat_dim, cfg.encoder_embed_dim)
         
-        print(f'cfg.max_source_positions: {cfg.max_source_positions}')
-        print(f'cfg.encoder_embed_dim: {cfg.encoder_embed_dim}')
+        self.feats_type = feats_type
+        if feats_type == SignFeatsType.mediapipe or feats_type == SignFeatsType.openpose:
+            self.feat_proj = nn.Linear(feat_dim * 3, cfg.encoder_embed_dim)
+        if feats_type == SignFeatsType.i3d:
+            self.feat_proj = nn.Linear(feat_dim, cfg.encoder_embed_dim)
+            
         self.embed_positions = PositionalEmbedding(
             cfg.max_source_positions, cfg.encoder_embed_dim, self.padding_idx
         )
@@ -232,8 +233,8 @@ class Sign2TextTransformerEncoder(FairseqEncoder):
             self.layer_norm = None
 
     def forward(self, src_tokens, encoder_padding_mask, return_all_hiddens=False):
-        #if self.feats_type == SignFeatsType.mediapipe: #This error keeps appearing: raise AttributeError(name) from None
-        #    src_tokens = src_tokens.view(src_tokens.shape[0], src_tokens.shape[1], -1)
+        if self.feats_type == SignFeatsType.mediapipe: #This error keeps appearing: raise AttributeError(name) from None
+            src_tokens = src_tokens.view(src_tokens.shape[0], src_tokens.shape[1], -1)
         #src_tokens B x seq_len x Fs
         x = self.feat_proj(src_tokens).transpose(0, 1) #[seq_len, batch_size, embed_dim]
         # x: seq_len x B x H
