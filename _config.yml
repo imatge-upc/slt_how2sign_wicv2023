@@ -14,10 +14,10 @@ markdown: kramdown
 
 
 ### content configuration ###
-title:       "Paper title"
-keywords:    "computer vision, deep learning, whatever"
+title:       "Sign Language Translation for Instructional Videos"
+keywords:    "computer vision, deep learning, sign language translation"
 description: "Description here"
-source_link: "https://github.com/imatge-upc/wwwtemplate"
+source_link: "https://github.com/imatge-upc/slt_how2sign_wicv2023"
 favicon:     "img/favicon.ico"
 touch_icon:  "img/apple-touch-icon.png"
 # google_analytics_key: UA-49607422-1 ## put YOUR key here to enable tracking! (blank to disable)
