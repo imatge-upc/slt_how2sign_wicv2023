@@ -1,5 +1,5 @@
 # Sign Language Translation for Instructional Videos
-Accepted to CVPR WiCV 2023
+Accepted to CVPR WiCV 2023 [arXiv](https://imatge-upc.github.io/)
 
 See our project website [here](https://imatge-upc.github.io/slt_how2sign_wicv2023/).
 
