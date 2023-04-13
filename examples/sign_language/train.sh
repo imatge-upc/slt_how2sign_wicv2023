@@ -9,7 +9,7 @@ sbatch <<EOT
 #SBATCH --output=./logs/%j.%x.log
 
 source ~/.bashrc
-conda activate sign-language
+conda activate sign-language-new
 
 export HYDRA_FULL_ERROR=1
 task train

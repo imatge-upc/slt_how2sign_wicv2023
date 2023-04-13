@@ -57,7 +57,7 @@ class SignFeatsDataset(FairseqDataset):
         self.offsets = offsets
         self.sizes = sizes
         self.feats_type = feats_type
-        self.normalization = normalization #Check the normalization that it is doing here...
+        self.normalization = normalization 
         self.data_augmentation = data_augmentation
         self.min_sample_size = min_sample_size
         self.max_sample_size = (
@@ -113,7 +113,7 @@ class SignFeatsDataset(FairseqDataset):
 
             pose.body = pose.body.select_frames(frames_list)
             pose = self.postprocess(pose)
-        elif self.feats_type == SignFeatsType.i3d or self.feats_type == SignFeatsType.openpose: #Check what are openposes stored as
+        elif self.feats_type == SignFeatsType.i3d or self.feats_type == SignFeatsType.openpose:
             with open(feats_file, "rb") as f:
                 pose = np.load(f)
             pose = self.postprocess(pose)
@@ -125,7 +125,6 @@ class SignFeatsDataset(FairseqDataset):
 
     def postprocess(self, pose):
         
-        #
         if SignFeatsType[self.feats_type] in [SignFeatsType.mediapipe, SignFeatsType.openpose]:
             import mediapipe as mp
             mp_holistic = mp.solutions.holistic
@@ -152,18 +151,12 @@ class SignFeatsDataset(FairseqDataset):
                 mean, std = pose.normalize_distribution(axis=(0, 1, 2))
             else:
                 pass
-            '''
-            with torch.no_grad():
-                feats_norm_split = F.layer_norm(feats_split, feats_split.shape[1:])
-            feats = feats_norm_split.permute(1, 2, 0).reshape(-1, n_feats * 3).contiguous()'''
             if self.data_augmentation:
                 pose = pose.augment2d()
             pose = pose.torch()
                 
         elif (SignFeatsType[self.feats_type] in [SignFeatsType.i3d, SignFeatsType.CNN2d]):
             pose = torch.from_numpy(pose)
-            #with torch.no_grad(): #removing this improves the results!
-            #    pose = F.layer_norm(pose.float(), pose.shape)
         else:
             raise NotImplementedError(f'Using {self.feats_type} which is not SignFeatsType.i3d'
                                       ' nor SignFeatsType.mediapipe nor SignFeatsType.openpose'

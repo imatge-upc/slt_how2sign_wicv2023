@@ -45,7 +45,6 @@ def main():
         for sent in sentences:
             if args.lowercase:
                 sent = sent.lower()
-            #sent = moses_tokenizer.tokenize(sent, return_str=True) #We realized we don't need this.
             f.write(sent + "\n")
 
         gen_vocab(

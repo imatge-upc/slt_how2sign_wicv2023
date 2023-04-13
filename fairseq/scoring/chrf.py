@@ -33,4 +33,4 @@ class ChrFScorer(BaseScorer):
     def result_string(self, order=4):
         if order != 4:
             raise NotImplementedError
-        return self.sacrebleu.corpus_chrf(self.pred, [self.ref]).format()
+        return self.sacrebleu.corpus_chrf(self.pred, self.ref, word_order=2) #TODO: I had to remove the .format

@@ -221,18 +221,8 @@ class SignToTextTask(FairseqTask):
         assert root_dir.is_dir(), f"{root_dir} does not exist"
 
         #Depending on the features type, we load the corresponding manifest file
-        #print("split", split) #cvpr23.fairseq.i3d.train.how2sign
         manifest_file = root_dir / f"{split}.tsv"
         
-        #if SignFeatsType(self.cfg.feats_type) == SignFeatsType.keypoints:
-        #    feats_file = root_dir / f"{split}_kp.h5"
-        #elif SignFeatsType(self.cfg.feats_type) == SignFeatsType.i3d:
-        #    feats_file = root_dir / f"{split}_i3d.h5"
-        #elif SignFeatsType(self.cfg.feats_type) == SignFeatsType.CNN2d:
-            # feats_file = root_dir / f"{split}_sent.h5" #
-        #    feats_file = root_dir / f'{split}_cnn2d.h5' #mv test_sent.h5 test_cnn2d.h5
-        #else:
-        #    raise NotImplementedError("Features other than CNN2d, i3d or keypoints are not implemented")
         self.datasets[split] = SignFeatsDataset.from_manifest_file(
             manifest_file=manifest_file,
             normalization=self.cfg.normalization,
@@ -255,7 +245,7 @@ class SignToTextTask(FairseqTask):
                 self.cfg.min_source_positions,
                 self.cfg.max_source_positions,
             )
-        #import pdb; pdb.set_trace() #Adding this to see if I can solve the issue for decoding
+        
         data = pd.read_csv(manifest_file, sep="\t")
         text_compressor = TextCompressor(level=self.cfg.text_compression_level)
 
@@ -275,7 +265,6 @@ class SignToTextTask(FairseqTask):
         def process_label_fn(label):
             if self.cfg.pre_tokenizer == 'moses':
                 label = label.lower()
-                #label = self.moses_tokenizer.encode(label)
             return self.target_dictionary.encode_line(
                 self.bpe_tokenizer.encode(label), append_eos=False, add_if_not_exist=False
             )
@@ -283,8 +272,6 @@ class SignToTextTask(FairseqTask):
         def label_len_fn(label):
             return len(self.bpe_tokenizer.encode(label))
         
-        #Target dataset will have preprocessed + tokenized data, and val/test will have raw data.
-        #if is_train_split:
         self.datasets[split] = AddTargetDataset(
             self.datasets[split],
             labels,
@@ -318,8 +305,7 @@ class SignToTextTask(FairseqTask):
 
     def valid_step(self, sample, model, criterion):
         loss, sample_size, logging_output = super().valid_step(sample, model, criterion)
-        #md = MosesDetokenizer(lang='en') #I don't think we should do this here
-        blacklisted_words_path = '/home/usuaris/imatge/ltarres/sign2vec/fairseq-internal/examples/sign_language/scripts/blacklisted_words.txt'
+        blacklisted_words_path = 'scripts/blacklisted_words.txt'
         with open(blacklisted_words_path, 'r') as file:
             blacklisted_words = file.read().split("\n")
 
@@ -337,16 +323,14 @@ class SignToTextTask(FairseqTask):
             if self.bpe_tokenizer:
                 s = self.bpe_tokenizer.decode(s)
             if self.moses_detok:
-                #s = self.moses_detok.detokenize(s.split())
                 s = truecase.get_true_case(s)
             return s
 
         if len(self.scorers) > 0:
             gen_out = self.inference_step(self.sequence_generator, [model], sample, prefix_tokens=None)
             for i in range(len(gen_out)):
-                #ref_tok = utils.strip_pad(sample["target"][i], self.tgt_dict.pad()).int().cpu()
                 pred_tok = gen_out[i][0]["tokens"].int().cpu()
-                ref = self.datasets[self.cfg.valid_subset].get_label(sample["id"][i]) #notice here that there is no postprocessing
+                ref = self.datasets[self.cfg.valid_subset].get_label(sample["id"][i])
                 pred = decode(pred_tok)
                 for s in self.scorers:
                     if s.cfg._name == 'reducedBLEU' or s.cfg._name == 'reducedchrf':
@@ -362,10 +346,10 @@ class SignToTextTask(FairseqTask):
                     else:
                         s.add_string(ref, pred)
 
-            if self.cfg.eval_print_samples:
-                logger.info("Validation example:")
-                logger.info("H-{} {}".format(sample["id"][-1], pred))
-                logger.info("T-{} {}".format(sample["id"][-1], ref))
+                if self.cfg.eval_print_samples:
+                    logger.info("Validation example:")
+                    logger.info("H-{} {}".format(sample["id"][i], pred))
+                    logger.info("T-{} {}".format(sample["id"][i], ref))
         for s in self.scorers:
             if s.cfg._name == 'wer':
                 logging_output["_wer_distance"] = s.distance
@@ -374,8 +358,7 @@ class SignToTextTask(FairseqTask):
                 sacrebleu_out = s._score()
                 logging_output["_bleu_sys_len"] = sacrebleu_out.sys_len
                 logging_output["_bleu_ref_len"] = sacrebleu_out.ref_len
-                # we split counts into separate entries so that they can be
-                # summed efficiently across workers using fast-stat-sync
+                # we split counts into separate entries so that they can be summed efficiently across workers using fast-stat-sync
                 assert len(sacrebleu_out.counts) == EVAL_BLEU_ORDER
                 for i in range(EVAL_BLEU_ORDER):
                     logging_output["_bleu_counts_" + str(i)] = sacrebleu_out.counts[i]
@@ -413,7 +396,7 @@ class SignToTextTask(FairseqTask):
                 result = result.cpu()
             return result
 
-        #Check how to only do this for validation
+        #TODO: Check how to only do this for validation
         for s in self.scorers:
             if s.cfg._name == 'wer':
                 if sum_logs("_wer_ref_len") > 0:
@@ -445,10 +428,8 @@ class SignToTextTask(FairseqTask):
                     def compute_bleu(meters):
                         import inspect
                         import torch
-
                         try:
                             from sacrebleu.metrics import BLEU
-
                             comp_bleu = BLEU.compute_bleu
                         except ImportError:
                             # compatibility API for sacrebleu 1.x
@@ -482,8 +463,6 @@ class SignToTextTask(FairseqTask):
                 metrics.log_derived("chrf", compute_chrf)
             
             elif s.cfg._name == 'reducedBLEU':
-                from nltk.translate.bleu_score import sentence_bleu #Check where I need to put this:
-                #I think I have the machine generated and reference in other place
                 counts, totals = [], []
                 for i in range(EVAL_BLEU_ORDER):
                     counts.append(sum_logs("_reduced_bleu_counts_" + str(i)))
@@ -491,8 +470,8 @@ class SignToTextTask(FairseqTask):
                 if max(totals) > 0:
                     metrics.log_scalar("_reduced_bleu_counts", np.array(counts))
                     metrics.log_scalar("_reduced_bleu_totals", np.array(totals))
-                    metrics.log_scalar("_reduced_bleu_sys_len", sum_logs("_bleu_sys_len"))
-                    metrics.log_scalar("_reduced_bleu_ref_len", sum_logs("_bleu_ref_len"))
+                    metrics.log_scalar("_reduced_bleu_sys_len", sum_logs("_reduced_bleu_sys_len"))
+                    metrics.log_scalar("_reduced_bleu_ref_len", sum_logs("_reduced_bleu_ref_len"))
 
                     def compute_reduced_bleu(meters):
                         import inspect

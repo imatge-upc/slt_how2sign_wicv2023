@@ -928,7 +928,7 @@ tasks:
       - "{{.SAVE_DIR}}/cvpr23.fairseq.mediapipe.test.how2sign.tsv"
 
 
-  how2sign:train_sentencepiece:
+  how2sign:train_sentencepiece: #This is deprecated
     desc: Train SentencePiece models for the How2Sign dataset.
     preconditions:
       - sh: "[[ -d {{.FAIRSEQ_ROOT}} ]]"
@@ -955,8 +955,8 @@ tasks:
       - "{{.SAVE_DIR}}/cvpr23.train_how2sign.unigram{{.VOCAB_SIZE}}.txt"
       - "{{.SAVE_DIR}}/cvpr23.train_how2sign.unigram{{.VOCAB_SIZE}}.vocab"
 
-  how2sign:train_sentencepiece_tokenized:
-    desc: Train SentencePiece models for the How2Sign dataset (where we have used lowercasing, moses punctuation normalization and moses tokenizer).
+  how2sign:train_sentencepiece_lowercased:
+    desc: Train SentencePiece models for the How2Sign dataset, for lowercased text.
     preconditions:
       - sh: "[[ -d {{.FAIRSEQ_ROOT}} ]]"
         msg: Specify the FAIRSEQ_ROOT in the .env file.
@@ -969,18 +969,18 @@ tasks:
               PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
               python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/train_spm.py \
                 --tsv-file {{.SAVE_DIR}}/cvpr23.fairseq.mediapipe.train.how2sign.tsv \
-                --spm-prefix {{.SAVE_DIR}}/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_lowercased \
+                --spm-prefix {{.SAVE_DIR}}/vocab/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_lowercased \
                 --vocab-size {{.VOCAB_SIZE}} \
                 --vocab-type unigram \
                 --lowercase True \
                 --column translation
     status:
-      - test $(cat {{.SAVE_DIR}}/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_tokenized.vocab | wc -l) -eq {{.VOCAB_SIZE}}
-      - test $(cat {{.SAVE_DIR}}/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_tokenized.txt | wc -l) -eq $(({{.VOCAB_SIZE}}-4))
+      - test $(cat {{.SAVE_DIR}}/vocab/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_tokenized.vocab | wc -l) -eq {{.VOCAB_SIZE}}
+      - test $(cat {{.SAVE_DIR}}/vocab/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_tokenized.txt | wc -l) -eq $(({{.VOCAB_SIZE}}-4))
     generates:
-      - "{{.SAVE_DIR}}/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_tokenized.model"
-      - "{{.SAVE_DIR}}/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_tokenized.txt"
-      - "{{.SAVE_DIR}}/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_tokenized.vocab"
+      - "{{.SAVE_DIR}}/vocab/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_tokenized.model"
+      - "{{.SAVE_DIR}}/vocab/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_tokenized.txt"
+      - "{{.SAVE_DIR}}/vocab/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_tokenized.vocab"
   
   greet:
     cmds:
@@ -1108,6 +1108,7 @@ tasks:
               --task sign_to_text \
               --gen-subset {{.SUBSET}} \
               --seed {{.SEED}} \
+              --batch-size 32 \
               --scoring sacrebleu \
               --max-source-positions {{.MAX_SOURCE_POSITIONS}} \
               --max-target-positions {{.MAX_TARGET_POSITIONS}} \
@@ -1119,11 +1120,11 @@ tasks:
               --sentencepiece-model {{.SPM_MODEL}} \
               --skip-invalid-size-inputs-valid-test > {{.OUT_FILE}}
         silent: false
-    vars:
+    vars:kki
       SEED: 48151623
       MAX_SOURCE_POSITIONS: 1024
       MAX_TARGET_POSITIONS: 1024
-      MAX_TOKENS: 80_000
+      MAX_TOKENS: 16_000
       BEAM_SIZE: 5
       CKPT_FILE:
         sh: echo {{.SAVE_DIR}}/{{.EXPERIMENT}}/ckpts/{{.CKPT}}

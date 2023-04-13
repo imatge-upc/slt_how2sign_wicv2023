@@ -6,7 +6,8 @@ from .sign_features_dataset import (
     RandomCropSignFeatsDataset,
 )
 
+'''
 from .SL_topic_detection_dataset import (
-    SignFeatsType,
+    SignFeatsType_TD,
     SLTopicDetectionDataset,
-)
+)'''

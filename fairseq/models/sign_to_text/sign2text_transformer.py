@@ -148,15 +148,8 @@ class Sign2TextTransformerModel(FairseqEncoderDecoderModel):
     @classmethod
     def build_model(cls, cfg, task):
         """Build a new model instance."""
-
-        # TODO: Not working during generate (train.tsv not found)
-        #       PROVISIONAL WORKAROUND
-        # dummy_sample = task.get_dummy_sample()
-        # if isinstance(dummy_sample['source'], Pose):
-        #     feats_type = SignFeatsType.mediapipe
-        #     feat_dim = dummy_sample['source'].body.data.shape[-2]
         
-        #I don't think this is the way
+        # TODO: improve this by looking at a sample maybe dummy_sample['source'].body.data.shape[-2]
         if cfg.feats_type == SignFeatsType.i3d:
             feat_dim = 1024
         elif cfg.feats_type == SignFeatsType.mediapipe:
