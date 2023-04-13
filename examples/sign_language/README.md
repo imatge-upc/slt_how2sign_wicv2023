@@ -23,7 +23,7 @@ sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b path-to-env/
 
 ## Downloading the data
 We are working on uploading the I3D keypoints and .tsv to the dataverse. Once you have them, they should follow this structure:
-.
+```
 ├── data/
 │   ├── train/
 │   │   ├── --7E2sU6zP4_10-5-rgb_front.npy
@@ -40,6 +40,7 @@ We are working on uploading the I3D keypoints and .tsv to the dataverse. Once yo
 ├── cvpr23.fairseq.i3d.train.how2sign.tsv
 ├── cvpr23.fairseq.i3d.val.how2sign.tsv
 └── cvpr23.fairseq.i3d.test.how2sign.tsv
+```
 
 Each of the folder partitions contain the corresponding I3D features in .npy files, provided by [previous work](https://imatge-upc.github.io/sl_retrieval/), that correspond to each How2Sign sentence.  
 In addition, we provide the `.tsv` files for all the partitions that contains the metadata about each of the sentences, such as translations, path to `.npy` file, duration. 
@@ -104,5 +105,4 @@ year = {2023}
 - Some scripts from this repository use the GNU Parallel software.
   > Tange, Ole. (2022). GNU Parallel 20220722 ('Roe vs Wade'). Zenodo. https://doi.org/10.5281/zenodo.6891516
 
-Check the original Fairseq README to learn how to use this toolkit.
-https://github.com/mt-upc/fairseq/blob/wicv2023-slt/README_FAIRSEQ.md
+Check the original [Fairseq README](https://github.com/mt-upc/fairseq/blob/wicv2023-slt/README_FAIRSEQ.md) to learn how to use this toolkit.
