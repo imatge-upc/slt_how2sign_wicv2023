@@ -25,7 +25,7 @@ from fairseq.scoring.wer import WerScorerConfig
 from fairseq.scoring.bleu import SacrebleuConfig
 from fairseq.scoring.chrf import ChrFScorerConfig
 from fairseq.tasks import FairseqTask, register_task
-from sacremoses import MosesDetokenizer
+#from sacremoses import MosesDetokenizer
 import truecase
 
 EVAL_BLEU_ORDER = 4
@@ -157,7 +157,8 @@ class SignToTextTask(FairseqTask):
                 build_scorer(cfg.eval_bleu_config, self.tgt_dict)
             )
             if cfg.pre_tokenizer == 'moses':
-                self.moses_detok = MosesDetokenizer(lang='en')
+                #self.moses_detok = MosesDetokenizer(lang='en')
+                self.moses_detok = True
         if self.cfg.eval_chrf:
             self.scorers.append(
                 build_scorer(cfg.eval_chrf_config, self.tgt_dict)
@@ -168,14 +169,16 @@ class SignToTextTask(FairseqTask):
             )
             self.scorers[-1].cfg._name = "reducedBLEU"
             if cfg.pre_tokenizer == 'moses':
-                self.moses_detok = MosesDetokenizer(lang='en')
+                #self.moses_detok = MosesDetokenizer(lang='en')
+                self.moses_detok = True
         if self.cfg.eval_reducedchrf:
             self.scorers.append(
                 build_scorer(cfg.eval_reducedchrf_config, self.tgt_dict)
             )
             self.scorers[-1].cfg._name = "reducedchrf"
             if cfg.pre_tokenizer == 'moses':
-                self.moses_detok = MosesDetokenizer(lang='en')
+                #self.moses_detok = MosesDetokenizer(lang='en')
+                self.moses_detok = True
             
 
     @classmethod
