@@ -21,7 +21,7 @@ pip install --editable .
 The execution of scripts is managed with [Task](https://taskfile.dev/). Please follow the [installation instructions](https://taskfile.dev/installation/) in the official documentation.
 We recommend using the following
 ```bash
-sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b path-to-env/sign-language-new/bin
+sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b path-to-env/slt-how2sign-wicv2023/bin
 ```
 
 ## Downloading the data

@@ -18,7 +18,7 @@ from fairseq.models import (
     BaseFairseqModel,
     register_model,
 )
-# TODO: see how to use S2THubInterface
+
 from fairseq.models.speech_to_text.hub_interface import S2THubInterface
 from fairseq.modules import (
     FairseqDropout,
@@ -88,7 +88,7 @@ class Conv1dSubsampler(nn.Module):
         return x, self.get_out_seq_lens_tensor(src_lengths)
 
 @dataclass
-class SLTopicDetectionTransformerConfig(FairseqDataclass):
+class SLTopicDetectionTransformerConfig_alvaro(FairseqDataclass):
     '''
     Add model-specific arguments to the parser.
     '''
@@ -144,7 +144,7 @@ class SLTopicDetectionTransformerConfig(FairseqDataclass):
     max_source_positions: int = II("task.max_source_positions")
 
 
-@register_model("SL_topic_detection_transformer", dataclass=SLTopicDetectionTransformerConfig)
+@register_model("SL_topic_detection_transformer_alvaro", dataclass=SLTopicDetectionTransformerConfig_alvaro)
 class Sign2TextTransformerModel(BaseFairseqModel):
     '''
     Adapted Transformer model for SL Topic Detection tasks. The Transformer

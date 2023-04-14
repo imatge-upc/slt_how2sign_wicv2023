@@ -9,7 +9,6 @@ import h5py
 import numpy as np
 import pandas as pd
 
-import torchvision
 import torch
 import torch.nn.functional as F
 
@@ -20,7 +19,7 @@ from fairseq.data.text_compressor import TextCompressor, TextCompressionLevel
 logger = logging.getLogger(__name__)
 
 
-class SignFeatsType(Enum):
+class SignFeatsType_TD(Enum):
     text = "text"
     text_albert = "text_albert"
     spot_align = "spot_align"
@@ -56,8 +55,7 @@ class SLTopicDetectionDataset(FairseqDataset):
 
         self.manifest = manifest
 
-        # if feats_type == SignFeatsType.video, feats_path is the directory
-        # where .mp4 files of the corresponding split are stored
+        # if feats_type == SignFeatsType.video, feats_path is the directory where .mp4 files of the corresponding split are stored
         self.feats_path = feats_path
         self.ids = [_id for _id in ids]
 
@@ -122,6 +120,7 @@ class SLTopicDetectionDataset(FairseqDataset):
         _id = _id if isinstance(self.ids, list) else _id.as_py()
         fn = _id
         if self.feats_type in ['video']:  # load corresponding mp4
+            import torchvision
             # there is no repeated value in column VIDEO_ID of self.manifest
             video_name = self.manifest[self.manifest.VIDEO_ID.str.match(fn)]['VIDEO_NAME'].values[0]
             feats = torchvision.io.read_video(filename=os.path.join(self.feats_path, video_name + '.mp4'), end_pts=5115)[0]
