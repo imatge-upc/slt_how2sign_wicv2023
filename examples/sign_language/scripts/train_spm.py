@@ -10,7 +10,6 @@ from tempfile import NamedTemporaryFile
 import pandas as pd
 
 from examples.speech_to_text.data_utils import gen_vocab
-from sacremoses import MosesTokenizer
 
 log = logging.getLogger(__name__)
 
@@ -38,8 +37,6 @@ def main():
         tsv_file = Path(tsv_file).expanduser().resolve()
         df = pd.read_csv(tsv_file, sep='\t')
         sentences.extend(df[args.column].to_list())
-    
-    moses_tokenizer = MosesTokenizer(df['translation_lang'][0])
 
     with NamedTemporaryFile(mode="w") as f:
         for sent in sentences:

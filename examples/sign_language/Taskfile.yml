@@ -1120,7 +1120,7 @@ tasks:
               --sentencepiece-model {{.SPM_MODEL}} \
               --skip-invalid-size-inputs-valid-test > {{.OUT_FILE}}
         silent: false
-    vars:kki
+    vars:
       SEED: 48151623
       MAX_SOURCE_POSITIONS: 1024
       MAX_TARGET_POSITIONS: 1024

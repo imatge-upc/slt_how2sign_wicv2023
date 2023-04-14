@@ -52,7 +52,7 @@ Notice that you might need to manually change the path of the `signs_file` colum
 ## Training the corresponding sentencepiece model
 Given that our model operated on preprocessed text, we need to build a tokenizer with a lowercased text.
 ```bash
-cd FAIRSEQ_ROOT/experiments/sign_language/
+cd examples/sign_language/
 task how2sign:train_sentencepiece_lowercased
 ```
 Previously to the call of the function, a `FAIRSEQ_ROOT/examples/sign_language/.env` file should be defined with the following variables:
@@ -60,13 +60,15 @@ Previously to the call of the function, a `FAIRSEQ_ROOT/examples/sign_language/.
 FAIRSEQ_ROOT: path/to/fairseq
 SAVE_DIR: path/to/tsv
 VOCAB_SIZE: 7000
+FEATS: i3d
+PARTITION: train
 ```
 As you have read in the paper, we are using rBLEU as a metric. The blacklist can be found in: `FAIRSEQ_ROOT/examples/sign_language/scripts/blacklisted_words.txt`
 
 ## Training 
-As per fairseq documentation, we work with config files that can be found in `CONFIG_DIR = FAIRSEQ_ROOT/examples/sign_language/config/i3d_best`. Select the name of the .yaml files as the experiment name desired. Simply select an EXPERIMENT_NAME and run:
+As per fairseq documentation, we work with config files that can be found in `CONFIG_DIR = FAIRSEQ_ROOT/examples/sign_language/config/wicv_cvpr23/i3d_best`. Select the name of the .yaml files as the experiment name desired. For the final model, select `baseline_6_3_dp03_wd_2`. As EXPERIMENT_NAME and run:
 ```bash
-export EXPERIMENT=${EXPERIMENT_NAME}
+export EXPERIMENT=baseline_6_3_dp03_wd_2
 task train_slt
 ```
 Remember to have a GPU available and the environment activated.
