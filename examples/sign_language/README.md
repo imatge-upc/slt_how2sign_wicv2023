@@ -1,6 +1,9 @@
 # Sign Language Translation from Instructional Videos
 
-This repository contains the implementation for the Sign Language Translation from Instructional Videos paper. The citation of the paper is at the end of this README.
+This repository contains the implementation for the Sign Language Translation from Instructional Videos paper, accepted at CVPR WiCV 2023. The citation of the paper is at the end of this README.
+See our project website [here](https://imatge-upc.github.io/slt_how2sign_wicv2023/).
+Download our paper in pdf [here]() and find it on [arXiv](https://arxiv.org/abs/2304.06371).
+
 All the scripts are located inside examples/sign_language/scripts.
 
 ## First steps
@@ -88,9 +91,10 @@ CKPT:
 SUBSET:
 SPM_MODEL:
 ```
+We are currently updating the weights of our best-performing model and I3D features to dataverse. They will be available soon! 
 
 ## Citations
-- If you fins this work useful, please consider citing:
+- If you find this work useful, please consider citing:
 <i>
 Laia Tarres, Gerard I. Gallego, Amanda Duarte, Jordi Torres and Xavier Giro-i-Nieto. "Sign Language Translation from Instructional Videos", WCVPR 2023.
 </i>
