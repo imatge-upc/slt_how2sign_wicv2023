@@ -10,7 +10,7 @@ class How2Sign(SignLanguageDataset):
     """
     Create a Dataset for How2Sign. Each item is a dictionary with:
     id, file, offset, length, type, signs_lang, translation, translation_lang, topic
-    base dir should be: /mnt/gpid08/datasets/How2Sign/TO_MOVE_OUTSIDE/EgoSign/data_cvpr23
+    base dir should be:
     """
 
     TRANSLATION_LANGS = ['en'] # TODO: add 'pt'

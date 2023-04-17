@@ -41,7 +41,7 @@ task:
   normalization: normalize
   #body_parts: upperbody,lefthand,righthand
   #feat_dims: "0,1,2"
-  dict_path: /mnt/gpid08/datasets/How2Sign/metadata/How2Sign/categories/categories/categoryName_categoryID.csv 
+  dict_path: {env:DATA_DIR}/categories/categories/categoryName_categoryID.csv 
 
 model:
   _name: SL_topic_detection_transformer

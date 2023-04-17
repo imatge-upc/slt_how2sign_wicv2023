@@ -1,5 +1,4 @@
 # Sign Language Translation from Instructional Videos
-
 This repository contains the implementation for the Sign Language Translation from Instructional Videos paper, accepted at CVPR WiCV 2023. The citation of the paper is at the end of this README.
 See our project website [here](https://imatge-upc.github.io/slt_how2sign_wicv2023/).
 Download our paper in pdf [here]() and find it on [arXiv](https://arxiv.org/abs/2304.06371).
@@ -83,16 +82,21 @@ CONFIG_DIR: FAIRSEQ_ROOT/examples/sign_language/config/i3d_best
 
 ## Evaluation
 ```bash
-export EXPERIMENT=${EXPERIMENT_NAME}
 task generate
 ```
 Similarly to other tasks, the .env should be updated:
 ```bash
-EXPERIMENT: 
-CKPT:
-SUBSET:
-SPM_MODEL:
+EXPERIMENT: EXPERIMENT_NAME
+CKPT: name_checkpoint, for example: checkpoint.best_sacrebleu_9.2101.pt
+SUBSET: cvpr23.fairseq.i3d.test.how2sign
+SPM_MODEL: path/to/cvpr23.train.how2sign.unigram7000_lowercased.model
 ```
+The `task generate` generates a folder in the output file called `generates/partition` with a checkpoint.out file that contains both the generations and the metrics for the partition. 
+Script `python scripts/analyze_fairseq_generate.py` analizes raw data and outputs final BLEU and rBLEU scores, call it after the `task generate` in the following manner:
+```bash
+python scripts/analyze_fairseq_generate.py --generates-dir path/to/generates --vocab-dir path/to/vocab --experiment baseline_6_3_dp03_wd_2 --partition test --checkpoint checkpoint_best
+```
+
 We are currently updating the weights of our best-performing model and I3D features to dataverse. They will be available soon! 
 
 ## Citations

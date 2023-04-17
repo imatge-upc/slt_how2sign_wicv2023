@@ -22,7 +22,6 @@ checkpoint:
   maximize_best_checkpoint_metric: True
   keep_best_checkpoints: 2
   patience: 10000
-  #restore_file: /mnt/gpid08/users/ltarres/CVPR23_experiments/baseline_6_3_dp03_wd/ckpts/checkpoint.best_reduced_sacrebleu_3.5401.pt
 
 dataset:
   train_subset: cvpr23.fairseq.i3d.train.how2sign           #here i had the name of the tsv file
