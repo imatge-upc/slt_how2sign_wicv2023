@@ -35,6 +35,7 @@ dependencies:
   - parallel=20220722
   - conda-forge::imageio=2.22.0
   - conda-forge::imageio-ffmpeg=0.4.7
+  - conda-forge::sacremoses=0.0.53  
 
   - pip:
       - mediapipe==0.8.10.1

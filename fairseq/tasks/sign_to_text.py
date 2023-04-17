@@ -3,7 +3,7 @@
 
 
 import logging
-from pathlib import Path
+from pathlib import Path, os
 from typing import Optional
 from argparse import Namespace
 from dataclasses import dataclass, field
@@ -25,7 +25,7 @@ from fairseq.scoring.wer import WerScorerConfig
 from fairseq.scoring.bleu import SacrebleuConfig
 from fairseq.scoring.chrf import ChrFScorerConfig
 from fairseq.tasks import FairseqTask, register_task
-#from sacremoses import MosesDetokenizer
+from sacremoses import MosesDetokenizer
 import truecase
 
 EVAL_BLEU_ORDER = 4
@@ -157,8 +157,7 @@ class SignToTextTask(FairseqTask):
                 build_scorer(cfg.eval_bleu_config, self.tgt_dict)
             )
             if cfg.pre_tokenizer == 'moses':
-                #self.moses_detok = MosesDetokenizer(lang='en')
-                self.moses_detok = True
+                self.moses_detok = MosesDetokenizer(lang='en')
         if self.cfg.eval_chrf:
             self.scorers.append(
                 build_scorer(cfg.eval_chrf_config, self.tgt_dict)
@@ -169,16 +168,14 @@ class SignToTextTask(FairseqTask):
             )
             self.scorers[-1].cfg._name = "reducedBLEU"
             if cfg.pre_tokenizer == 'moses':
-                #self.moses_detok = MosesDetokenizer(lang='en')
-                self.moses_detok = True
+                self.moses_detok = MosesDetokenizer(lang='en')
         if self.cfg.eval_reducedchrf:
             self.scorers.append(
                 build_scorer(cfg.eval_reducedchrf_config, self.tgt_dict)
             )
             self.scorers[-1].cfg._name = "reducedchrf"
             if cfg.pre_tokenizer == 'moses':
-                #self.moses_detok = MosesDetokenizer(lang='en')
-                self.moses_detok = True
+                self.moses_detok = MosesDetokenizer(lang='en')
             
 
     @classmethod
@@ -308,7 +305,9 @@ class SignToTextTask(FairseqTask):
 
     def valid_step(self, sample, model, criterion):
         loss, sample_size, logging_output = super().valid_step(sample, model, criterion)
-        blacklisted_words_path = 'scripts/blacklisted_words.txt'
+        blacklisted_words = 'examples/sign_language/scripts/blacklisted_words.txt'
+        path_to_tasks = os.path.dirname(os.path.realpath(__file__)).split("/fairseq/tasks")[0]
+        blacklisted_words_path = os.path.join(path_to_tasks, blacklisted_words)
         with open(blacklisted_words_path, 'r') as file:
             blacklisted_words = file.read().split("\n")
 
