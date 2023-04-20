@@ -1,0 +1,60 @@
+# @package _group_
+name: "Sweep SL TD perceiverIO big mouthings"
+project: SLTopicDetection
+program: fairseq-hydra-train
+
+method: random #"grid", "random", "bayes"
+
+metric:
+  goal: maximize
+  name: val/acc
+
+parameters:
+  task.feats_type:
+    values: ['mouthings']
+  dataset.batch_size:
+    values: [16, 32]
+  model.dropout:
+    values: [0.0]
+  model.attention_probs_dropout_prob:
+    values: [0.0]
+  model.num_blocks:
+    values: [2]
+  model.num_self_attends_per_block:
+    values: [1]
+  model.num_self_attention_heads:
+    values: [4]
+  model.num_cross_attention_heads:
+    values: [1]
+  model.encoder_input_embed_size:
+    values: [256]
+  model.num_latents:
+    values: [512]   #####
+  model.d_latents:
+    values: [256]
+  model.qk_channels:
+    values: [256]
+  model.decoder_qk_channels:
+    values: [256]
+  model.decoder_v_channels:
+    values: [256]
+  model.hidden_act:
+    values: ['relu']
+  model.use_query_residual:
+    values: [false, true]
+  optimization.lr:
+    values: [[2e-3], [1e-3], [5e-4], [2e-4], [1e-4]]
+  optimizer.weight_decay:
+    values: [0.001]
+
+command:
+  - ${program}
+  - ${args_no_hyphens}
+  - "task.data=../../../../../../data/How2Sign/mouthings"
+  - "task.dict_path=../../../../../../data/How2Sign/i3d/categoryName_categoryID.csv"
+  - "bpe.sentencepiece_model=/mnt/gpid08/users/alvaro.budria/pose2vec/data/How2Sign/text/spm_unigram8000_en.model"
+  - "--config-dir"
+  - "./config"
+  - "--config-name"
+  - "baseline_perceiverIO"
+

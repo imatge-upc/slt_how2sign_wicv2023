@@ -1,0 +1,79 @@
+# @package _global_
+
+hydra:
+  run:
+    dir: ${env:SAVE_DIR}/${env:WANDB_NAME}/hydra_outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+
+common:
+  fp16: False
+  seed: 48151623
+  wandb_project: ${env:WANDB_PROJECT}
+
+distributed_training:
+  heartbeat_timeout: 600
+
+checkpoint:
+  save_dir: ${env:SAVE_DIR}/${env:WANDB_NAME}/ckpts/
+  no_epoch_checkpoints: True
+  save_interval_updates: 200
+  keep_interval_updates: 1
+  best_checkpoint_metric: acc
+  maximize_best_checkpoint_metric: True
+  keep_best_checkpoints: 2
+  patience: 10000
+
+dataset:
+  num_workers: 4
+  max_tokens: 20000               # batch_size is inferred from max_tokens, as the max num of sequences that can be fit in max_tokens
+  skip_invalid_size_inputs_valid_test: True
+  train_subset: cvpr23.fairseq.i3d.train.how2sign
+  valid_subset: cvpr23.fairseq.i3d.val.how2sign
+  validate_interval_updates: 600
+  
+task:
+  _name: SL_topic_detection
+  data: ${env:I3D_DIR}
+  feats_type: "i3d"
+  min_source_positions: 150
+  max_source_positions: 250000                  # ~41s @ 25fps
+  max_target_positions: 1
+  #normalize: True #Check that this on the bottom is doing the same
+  normalization: normalize
+  #body_parts: upperbody,lefthand,righthand
+  #feat_dims: "0,1,2"
+  dict_path: {env:DATA_DIR}/categories/categories/categoryName_categoryID.csv 
+
+model:
+  _name: SL_topic_detection_transformer
+  #subsample_input: true #Check why this is needed
+  #apply_mask: false
+  dropout: 0.1
+  #feature_grad_mult: 0.0
+  encoder_embed_dim: 512
+  encoder_ffn_embed_dim: 512
+  #freeze_finetune_updates: 0
+  encoder_attention_heads: 2
+  encoder_layers: 2
+
+criterion:
+  _name: label_smoothed_cross_entropy
+
+optimization:
+  max_update: 8500 
+  lr: [0.001] # values: 0.001, 0.0001, 0.00001
+  update_freq: [1]
+
+optimizer:
+  _name: adam
+  adam_betas: [0.9, 0.998]
+  weight_decay: 1e-1
+
+lr_scheduler:
+  _name: reduce_lr_on_plateau
+  lr_shrink: 0.5
+  lr_patience: 8
+  #warmup_updates: 500
+
+bpe:
+  _name: sentencepiece
+  sentencepiece_model: ${env:SAVE_DIR}/vocab/cvpr23.train.how2sign.unigram7000_pre.model

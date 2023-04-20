@@ -1,0 +1,66 @@
+# @package _group_
+
+common:
+  fp16: false
+  log_interval: 2
+  wandb_project: SL_TD
+
+task:
+  _name: SL_topic_detection
+  feats_type: ???
+  body_parts: upperbody,lefthand,righthand
+  feat_dims: "0,1,2"
+  data: ???
+  dict_path: ???
+  normalize: true
+  min_source_positions: 150
+  max_source_positions: 5500
+  max_target_positions: 1
+
+dataset:
+  num_workers: 0
+  batch_size: 16
+  skip_invalid_size_inputs_valid_test: true
+  train_subset: train
+  valid_subset: val
+  validate_interval_updates: 500
+
+criterion:
+  _name: label_smoothed_cross_entropy
+
+optimization:
+  max_update: 5685
+  lr: [0.001]
+  update_freq: [1]
+
+optimizer:
+  _name: adam
+  adam_betas: [0.9, 0.998]
+  weight_decay: 0.001
+
+lr_scheduler:
+  _name: inverse_sqrt
+  warmup_updates: 500
+
+checkpoint:
+  keep_last_epochs: 1
+  best_checkpoint_metric: acc
+  maximize_best_checkpoint_metric: true
+  save_dir: ???
+
+model:
+  _name: SL_topic_detection_LSTM
+
+  encoder_hid_attention: true
+  encoder_input_attention: false
+
+  dropout: 0.1
+  encoder_cells: 2
+  encoder_hidden_size: 512
+  encoder_bidirectional: true
+  encoder_normalize_before: true
+  encoder_input_embed_size: 256
+
+bpe:
+  _name: sentencepiece
+  sentencepiece_model: ???

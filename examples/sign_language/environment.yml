@@ -1,0 +1,44 @@
+name: slt-how2sign-wicv2023
+
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.8
+  - pip=22.2
+  - numpy=1.22.4
+  - pandas=1.4.3
+  - pandarallel=1.6.1
+  - cudatoolkit=11.5.1
+  - pytorch=1.11.0
+  - torchvision=0.12.0
+  - torchaudio=0.11.0
+  - conda-forge::ffmpeg=4.4.2
+  - opencv=4.6.0
+  - pysoundfile=0.10.2
+  - h5py=3.7.0
+  - tqdm=4.64.0
+  - wandb=0.12.21
+  - tensorboardx=2.5.1
+  - jupyterlab=3.4.4
+  - sacrebleu=2.3.1
+  - srt=3.5.2
+  - fairscale=0.4.3
+  - sentencepiece=0.1.96
+  - curl=7.83.1
+  - axel=2.17.11
+  - tar=1.34
+  - pigz=2.6
+  - pv=1.6.6
+  - parallel=20220722
+  - conda-forge::imageio=2.22.0
+  - conda-forge::imageio-ffmpeg=0.4.7
+  - conda-forge::sacremoses=0.0.53  
+
+  - pip:
+      - mediapipe==0.8.10.1
+      - pose-format==0.1.0
+      - vidgear==0.2.6
+      - truecase==0.0.14

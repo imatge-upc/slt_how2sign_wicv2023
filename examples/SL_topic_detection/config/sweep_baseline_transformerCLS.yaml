@@ -1,0 +1,50 @@
+# @package _group_
+name: "Sweep SL TD transformerCLS big mouthings"
+project: SLTopicDetection
+program: fairseq-hydra-train
+
+method: grid #"grid", "random", "bayes"
+
+metric:
+  goal: maximize
+  name: val/acc
+
+parameters:
+  task.feats_type:
+    values: ['mouthings']
+    #  dataset.max_tokens:
+    # values: [40000]
+  dataset.batch_size:
+    values: [16, 32]
+  task.normalize:
+    values: [true]
+  model.subsample_input: ####
+    values: [false]
+  model.encoder_layers:
+    values: [3]
+  model.encoder_attention_heads:
+    values: [4]
+  model.encoder_ffn_embed_dim:
+    values: [1024]
+  model.encoder_embed_dim:
+    values: [256]
+  model.dropout:
+    values: [0.0, 0.1, 0.2]
+  optimization.max_update:
+    values: [4000]
+  optimization.lr:
+    values: [[2e-3], [1e-3], [5e-4], [2e-4], [1e-4]]
+  optimizer.weight_decay:
+    values: [0.001]
+
+
+command:
+  - ${program}
+  - ${args_no_hyphens}
+  - "task.data=../../../../../../data/How2Sign/mouthings"
+  - "task.dict_path=../../../../../../data/How2Sign/i3d/categoryName_categoryID.csv"
+  - "bpe.sentencepiece_model=/mnt/gpid08/users/alvaro.budria/pose2vec/data/How2Sign/text/spm_unigram8000_en.model"
+  - "--config-dir"
+  - "./config"
+  - "--config-name"
+  - "baseline_transformerCLS"

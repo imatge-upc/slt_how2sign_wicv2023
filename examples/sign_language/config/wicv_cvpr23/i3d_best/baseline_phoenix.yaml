@@ -1,0 +1,96 @@
+# @package _global_
+
+hydra:
+  run:
+    dir: ${env:SAVE_DIR}/${env:WANDB_NAME}/hydra_outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+
+common:
+  seed: 48151623
+  fp16: False
+  wandb_project: ${env:WANDB_PROJECT}
+
+distributed_training:
+  heartbeat_timeout: 600
+
+checkpoint:
+  save_dir: ${env:SAVE_DIR}/${env:WANDB_NAME}/ckpts/
+  no_epoch_checkpoints: True
+  save_interval: 2
+  #save_interval_updates: 927*2 #Default is at the end of epoch
+  #keep_interval_updates: 1
+  best_checkpoint_metric: reduced_sacrebleu
+  maximize_best_checkpoint_metric: True
+  keep_best_checkpoints: 2
+  patience: 10000
+
+dataset:
+  train_subset: cvpr23.fairseq.i3d.train.how2sign           #here i had the name of the tsv file
+  valid_subset: cvpr23.fairseq.i3d.val.how2sign           
+  num_workers: 4
+  batch_size: 32
+  max_tokens: 16_000                          # 640s @ 25fps
+  skip_invalid_size_inputs_valid_test: True
+  validate_interval: 2
+
+task:
+  _name: sign_to_text
+  data: ${env:I3D_DIR}                        #check where we should put the tsv file
+  max_source_positions: 1024                  
+  max_target_positions: 1024
+  feats_type: "i3d"
+  eval_gen_config:
+    beam: 5
+  eval_bleu: True
+  #eval_bleu_args: '{"beam": 5, "max_len_a": 0, "max_len_b": 30, "lenpen": 1.0}'
+  pre_tokenizer: moses #Should we also do a truecaser? Check this when you can
+  eval_bleu_config:
+    sacrebleu_tokenizer: 13a
+    sacrebleu_lowercase: False
+    sacrebleu_char_level: False
+  eval_chrf: True
+  eval_reducedBLEU: True
+  eval_reducedchrf: True
+  eval_print_samples: True
+
+model:
+  _name: sign2text_transformer
+  encoder_embed_dim: 512
+  encoder_ffn_embed_dim: 2048
+  encoder_attention_heads: 8
+  encoder_layers: 3
+  decoder_embed_dim: 512
+  decoder_ffn_embed_dim: 2048
+  decoder_attention_heads: 8
+  decoder_layers: 3
+  decoder_output_dim: 512
+  layernorm_embedding: True
+  share_decoder_input_output_embed: True
+  dropout: 0.1
+  attention_dropout: 0.1
+  activation_dropout: 0.1
+  activation_fn: relu
+
+criterion:
+  _name: label_smoothed_cross_entropy
+  label_smoothing: 0.0
+
+optimizer:
+  _name: adam
+  adam_betas: (0.9, 0.98)
+  adam_eps: 1e-08
+  weight_decay: 1e-3
+
+optimization:
+  lr: [0.001]
+  max_update: 100_000                  # change this so it doesn't stop for the warm reestart
+  update_freq: [1]
+  clip_norm: 1
+
+lr_scheduler:
+  _name: inverse_sqrt
+  warmup_updates: 2000
+  warmup_init_lr: 1e-07
+  lr: [0.001]
+
+bpe:
+  sentencepiece_model: ${env:SAVE_DIR}/vocab/cvpr23.train.how2sign.unigram7000_lowercased.model

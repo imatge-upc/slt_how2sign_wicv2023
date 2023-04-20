@@ -1,0 +1,131 @@
+# @package _group_
+
+common:
+  fp16: false
+  log_interval: 2
+  wandb_project: SL_TD
+  reset_logging: true
+  suppress_crashes: false
+  profile: false
+  seed: 1
+  tpu: false
+  cpu: true ##### check this when uploading to remote server
+  log_format: null  # check hydra_train.log
+  tensorboard_logdir: ./tensorboard_log
+
+common_eval:
+  model_overrides: '{}'
+  # check this
+  path: ''
+  # check hydra_train.log
+
+distributed_training:
+  tpu: false
+  distributed_world_size: 1
+  distributed_init_method: null
+  pipeline_model_parallel: false
+  distributed_port: 0
+  distributed_no_spawn: true
+  distributed_rank: 0
+
+is_ax: false
+
+hooks:
+  embedding: true
+  out_file_embedding: ''
+  attention: true
+  out_file_attention: ''
+  logits: true
+  out_file: ''
+
+task:
+  _name: SL_topic_detection
+  feats_type: ''  # check hydra_train.log
+  body_parts: upperbody,lefthand,righthand
+  feat_dims: "0,1,2"
+  modeling_task: classification
+  num_labels: 10
+  data: ''  # check this
+  dict_path: ''
+  normalize: true
+  min_source_positions: 150
+  max_source_positions: 5500
+  max_target_positions: 1
+
+dataset:
+  num_workers: 0
+  max_tokens: 20000  # check hydra_train.log
+  skip_invalid_size_inputs_valid_test: true
+  train_subset: train
+  valid_subset: val
+  dataset_split: test
+  validate_interval_updates: 600
+  required_batch_size_multiple: 1  # check hydra_train.log
+  data_buffer_size: 10  # check hydra_train.log
+
+criterion:
+  _name: label_smoothed_cross_entropy
+
+optimization:
+  max_update: 8000
+  lr: [1e-4]
+  update_freq: [1]
+
+optimizer:
+  _name: adam
+  adam_betas: [0.9, 0.998]
+  weight_decay: 1e-3
+
+lr_scheduler:
+  _name: reduce_lr_on_plateau
+  lr_shrink: 0.7
+  lr_patience: 8
+  warmup_updates: 50
+
+checkpoint:
+  checkpoint_suffix: ''
+  keep_last_epochs: 1
+  best_checkpoint_metric: acc
+  maximize_best_checkpoint_metric: true
+  checkpoint_shard_count: 1  # check hydra_train.log
+  # restore_file: ???
+
+model:
+  _name: SL_topic_detection_PerceiverIO
+  dropout: 0.1  # check hydra_train.log
+  d_model: ???
+  encoder_input_embed_size: 256  # check hydra_train.log
+  num_blocks: 1  # check hydra_train.log
+  num_self_attends_per_block: 4  # check hydra_train.log
+  num_self_attention_heads: 8  # check hydra_train.log
+  num_cross_attention_heads: 8  # check hydra_train.log
+  chunk_size_feed_forward: 256
+  num_latents: 256  # check hydra_train.log
+  d_latents: 512  # check hydra_train.log
+  qk_channels: 256  # check hydra_train.log
+  v_channels: 768  # check hydra_train.log
+  decoder_num_channels: 100  # must have same value as num_labels, which is enforced in the script
+  decoder_qk_channels: 256  # check hydra_train.log
+  decoder_v_channels: 256  # check hydra_train.log
+  cross_attention_shape_for_attention: kv  # check hydra_train.log
+  self_attention_widening_factor: 1  # check hydra_train.log
+  cross_attention_widening_factor: 1  # check hydra_train.log
+  hidden_act: relu  # check hydra_train.log
+  attention_probs_dropout_prob: 0.1  # check hydra_train.log
+  use_query_residual: false  # check hydra_train.log
+  num_bands: 5
+  preprocessor_position_encoding_type: trainable
+  decoder_position_encoding_type: trainable
+  image_prep_num_channels: 256
+  image_prep_type: patches
+  image_prep_spatial_downsample: 10
+  image_prep_temporal_downsample: 5
+  image_prep_in_channels: 3
+  image_prep_out_channels: 128
+  conv_after_patching: false
+  conv_after_patching_in_channels: 54
+
+bpe:
+  _name: sentencepiece
+  sentencepiece_model: ''
+  # check this

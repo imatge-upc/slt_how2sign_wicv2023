@@ -1,0 +1,1176 @@
+version: '3'
+
+dotenv: [.env]
+
+tasks:
+  phoenix:download:
+    desc: Download the RWTH-PHOENIX-Weather 2014 Continuous Sign Language Recognition Dataset.
+    preconditions:
+      - sh: "[[ -d {{.PHOENIX_DIR}} ]]"
+        msg: Specify an existing PHOENIX_DIR in the .env file.
+    vars:
+      NUM_CONNECTIONS: 32
+    cmds:
+      - cmd: axel -a -n {{.NUM_CONNECTIONS}}
+              --output={{.PHOENIX_DIR}}/phoenix-2014-T.v3.tar.gz
+              https://www-i6.informatik.rwth-aachen.de/ftp/pub/rwth-phoenix/2016/phoenix-2014-T.v3.tar.gz
+    status:
+      - test $(stat -c %s {{.PHOENIX_DIR}}/phoenix-2014-T.v3.tar.gz) -eq 41699758035
+    generates:
+      - "{{.PHOENIX_DIR}}/phoenix-2014-T.v3.tar.gz"
+
+  phoenix:extract:
+    desc: Extract the Phoenix dataset from the tar.gz after download.
+    preconditions:
+      - sh: test $(stat -c %s {{.PHOENIX_DIR}}/phoenix-2014-T.v3.tar.gz) -eq 41699758035
+        msg: The tar.gz file does not exist or is not correct, redownload it ({{.PHOENIX_DIR}}/phoenix-2014-T.v3.tar.gz).
+    cmds:
+      - cmd: pv {{.PHOENIX_DIR}}/phoenix-2014-T.v3.tar.gz | tar -x -I pigz -C {{.RAW_DATA_ROOT}}/Phoenix/
+    status:
+      - test -d {{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/
+      - test $(find {{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/PHOENIX-2014-T/features/fullFrame-210x260px/ -name "*.png" -type f | wc -l) -eq 947756
+    generates:
+      - "{{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/"
+
+  phoenix:convert2video:
+    desc: Convert the Phoenix dataset to video format.
+    preconditions:
+      - sh: test -d {{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/
+        msg: The uncompressed Phoenix folder does not exist.
+    vars:
+      NUM_JOBS: 32
+    cmds:
+      - cmd: rm {{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/PHOENIX-2014-T/features/fullFrame-210x260px/*/*.mp4
+      - cmd: find {{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/PHOENIX-2014-T/features/fullFrame-210x260px/*/* -type d |
+             parallel -j {{.NUM_JOBS}} --bar
+             ffmpeg -framerate 25  -i {}/images%04d.png -c:v libx264 -crf 0 -loglevel warning {}.mp4
+    status:
+      - test $(find {{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/PHOENIX-2014-T/features/fullFrame-210x260px/*/ -name "*.mp4" -type f | wc -l) -eq 8257
+    generates:
+      - "{{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/PHOENIX-2014-T/features/fullFrame-210x260px/*/*.mp4"
+
+  phoenix:extract_mediapipe:
+    desc: Extract MediaPipe poses from the Phoenix dataset.
+    preconditions:
+      - sh: test $(find {{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/PHOENIX-2014-T/features/fullFrame-210x260px/*/ -name "*.mp4" -type f | wc -l) -eq 8257
+        msg: The videos have not been generated yet or are incomplete. Regenerate them.
+    vars:
+      NUM_JOBS: 16
+      FPS: 25
+    cmds:
+      - cmd: |
+              if [[ -d {{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/PHOENIX-2014-T/features/mediapipe ]]; then
+                rm -r {{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/PHOENIX-2014-T/features/mediapipe
+              fi
+        silent: True
+      - cmd: find {{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/PHOENIX-2014-T/features/fullFrame-210x260px/*/ -name "*.mp4" -type f |
+             parallel -j {{.NUM_JOBS}} --bar \
+             'split=$(basename $(dirname {}));
+             id=$(basename {} .mp4);
+             pose_file="{{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/PHOENIX-2014-T/features/mediapipe/${split}/${id}.pose";
+             python ./scripts/extract_mediapipe.py --video-file {} --poses-file ${pose_file} --fps {{.FPS}} 2> /dev/null'
+    status:
+      - test $(find {{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/PHOENIX-2014-T/features/mediapipe/*/ -name "*.pose" -type f | wc -l) -eq 8257
+    generates:
+      - "{{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/PHOENIX-2014-T/features/mediapipe/*/*.pose"
+
+  phoenix:generate_tsv:
+    desc: Generate TSV files for the Phoenix dataset.
+    preconditions:
+      - sh: "[[ -d {{.FAIRSEQ_ROOT}} ]]"
+        msg: Specify the FAIRSEQ_ROOT in the .env file.
+      - sh: "[ ! -z {{.DATA_DIR}} ]"
+        msg: Specify the DATA_DIR in the .env file.
+      - sh: test $(find {{.PHOENIX_DIR}}/PHOENIX-2014-T-release-v3/PHOENIX-2014-T/features/mediapipe/*/ -name "*.pose" -type f | wc -l) -eq 8257
+        msg: Mediapipe features have not been generated yet or are incomplete. Run the extraction.
+    cmds:
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
+                --dataset phoenix \
+                --path {{.PHOENIX_DIR}} \
+                --tsv-out {{.DATA_DIR}}/phoenix.mediapipe.train.tsv \
+                --type mediapipe \
+                --split train \
+                --signs-lang dgs \
+                --translation-lang de
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
+                --dataset phoenix \
+                --path {{.PHOENIX_DIR}} \
+                --tsv-out {{.DATA_DIR}}/phoenix.mediapipe.dev.tsv \
+                --type mediapipe \
+                --split dev \
+                --signs-lang dgs \
+                --translation-lang de
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
+                --dataset phoenix \
+                --path {{.PHOENIX_DIR}} \
+                --tsv-out {{.DATA_DIR}}/phoenix.mediapipe.test.tsv \
+                --type mediapipe \
+                --split test \
+                --signs-lang dgs \
+                --translation-lang de
+    status:
+      - test $(md5sum {{.DATA_DIR}}/phoenix.mediapipe.train.tsv | cut -d ' ' -f 1) = "8764b8177865a59b580f3f48c5ee9a3d"
+      - test $(md5sum {{.DATA_DIR}}/phoenix.mediapipe.dev.tsv | cut -d ' ' -f 1) = "47aa7b71e79d17aa3b3075ed230712f1"
+      - test $(md5sum {{.DATA_DIR}}/phoenix.mediapipe.test.tsv | cut -d ' ' -f 1) = "f186de8f314672f0bf3c4c2753f9fe5e"
+    generates:
+      - "{{.DATA_DIR}}/phoenix.mediapipe.train.tsv"
+      - "{{.DATA_DIR}}/phoenix.mediapipe.dev.tsv"
+      - "{{.DATA_DIR}}/phoenix.mediapipe.test.tsv"
+
+  phoenix:train_sentencepiece:
+    desc: Train SentencePiece model for the Phoenix dataset.
+    preconditions:
+      - sh: "[[ -d {{.FAIRSEQ_ROOT}} ]]"
+        msg: Specify the FAIRSEQ_ROOT in the .env file.
+      - sh: "[ ! -z {{.DATA_DIR}} ]"
+        msg: Specify the DATA_DIR in the .env file.
+      - sh: "[ ! -z {{.VOCAB_SIZE}} ]"
+        msg: Specify a VOCAB_SIZE.
+      - sh: |
+            test $(md5sum {{.DATA_DIR}}/phoenix.mediapipe.train.tsv | cut -d ' ' -f 1) = "8764b8177865a59b580f3f48c5ee9a3d"
+            test $(md5sum {{.DATA_DIR}}/phoenix.mediapipe.dev.tsv | cut -d ' ' -f 1) = "47aa7b71e79d17aa3b3075ed230712f1"
+            test $(md5sum {{.DATA_DIR}}/phoenix.mediapipe.test.tsv | cut -d ' ' -f 1) = "f186de8f314672f0bf3c4c2753f9fe5e"
+        msg: TSV files have not been generated yet or are incomplete. Prepare them before running this.
+    cmds:
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/train_spm.py \
+                --tsv-file {{.DATA_DIR}}/phoenix.mediapipe.train.tsv \
+                --spm-prefix {{.DATA_DIR}}/phoenix.unigram{{.VOCAB_SIZE}} \
+                --vocab-size {{.VOCAB_SIZE}} \
+                --vocab-type unigram
+    status:
+      - test $(cat {{.DATA_DIR}}/phoenix.unigram{{.VOCAB_SIZE}}.vocab | wc -l) -eq {{.VOCAB_SIZE}}
+      - test $(cat {{.DATA_DIR}}/phoenix.unigram{{.VOCAB_SIZE}}.txt | wc -l) -eq $(({{.VOCAB_SIZE}}-4))
+    generates:
+      - "{{.DATA_DIR}}/phoenix.unigram{{.VOCAB_SIZE}}.model"
+      - "{{.DATA_DIR}}/phoenix.unigram{{.VOCAB_SIZE}}.txt"
+      - "{{.DATA_DIR}}/phoenix.unigram{{.VOCAB_SIZE}}.vocab"
+
+  wmt-slt22:focusnews:download:
+    desc: Download the WMT-SLT 22 FocusNews dataset.
+    preconditions:
+      - sh: "[[ -d {{.WMTSLT22_DIR}} ]]"
+        msg: Specify an existing WMTSLT22_DIR in the .env file.
+      - sh: "[ ! -z {{.WMTSLT22_ZENODO_TOKEN}} ]"
+        msg: Specify the Zenodo API Token in an env variable WMTSLT22_ZENODO_TOKEN
+    vars:
+      NUM_CONNECTIONS: 32
+      ZENODO_RECORD: 6631159
+    cmds:
+      - cmd: |
+              cookie=$(curl -s --cookie-jar - -o /dev/null "https://zenodo.org/record/{{.ZENODO_RECORD}}?token={{.WMTSLT22_ZENODO_TOKEN}}" | tail -n1 | cut -f7);
+              download_url=$(curl -s --cookie "session=${cookie}" "https://zenodo.org/api/records/{{.ZENODO_RECORD}}" | python3 -c "import sys, json; print(json.load(sys.stdin)['files'][0]['links']['self'])");
+              axel -a -n {{.NUM_CONNECTIONS}} -H "Cookie: session=${cookie}" -o {{.WMTSLT22_DIR}}/focusnews.v1.3.zip $download_url
+    status:
+      - test $(stat -c %s {{.WMTSLT22_DIR}}/focusnews.v1.3.zip) -eq 18498214944
+    generates:
+      - "{{.WMTSLT22_DIR}}/focusnews.v1.3.zip"
+
+  wmt-slt22:focusnews:extract:
+    desc: Extract the WMT-SLT 22 FocusNews dataset from the zip after download.
+    preconditions:
+      - sh: test $(stat -c %s {{.WMTSLT22_DIR}}/focusnews.v1.3.zip) -eq 18498214944
+        msg: The zip file does not exist or is not correct, redownload it ({{.WMTSLT22_DIR}}/focusnews.v1.3.zip).
+    cmds:
+      - cmd: |
+              unzip {{.WMTSLT22_DIR}}/focusnews.v1.3.zip -d {{.WMTSLT22_DIR}} |
+              pv -l -s $(unzip -Z -1 {{.WMTSLT22_DIR}}/focusnews.v1.3.zip | wc -l) > /dev/null
+    status:
+      - test $(find {{.WMTSLT22_DIR}}/focusnews/videos/ -name "*.mp4" -type f | wc -l) -eq 197
+    generates:
+      - "{{.WMTSLT22_DIR}}/focusnews/"
+
+  wmt-slt22:focusnews:videos_to_25fps:
+    desc: Convert the WMT-SLT 22 FocusNews dataset videos to 25fps.
+    preconditions:
+      - sh: test -d {{.WMTSLT22_DIR}}/focusnews
+        msg: The focusnews directory does not exist.
+    vars:
+      NUM_JOBS: 32
+    cmds:
+      - cmd: |
+              mkdir -p {{.WMTSLT22_DIR}}/focusnews/videos25fps;
+              find  {{.WMTSLT22_DIR}}/focusnews/videos/ -maxdepth 1 -name "focusnews.*.mp4" -type f |
+              parallel -j {{.NUM_JOBS}} --bar \
+              'fps=$(ffmpeg -i {} 2>&1 | sed -n "s/.*, \(.*\) tbr.*/\1/p");
+              if [[ $fps -ne 25 ]]; then
+                ffmpeg -i {} -filter:v fps=fps=25 -loglevel warning "{{.WMTSLT22_DIR}}/focusnews/videos25fps/$(basename {})";
+              else
+                cp {} {{.WMTSLT22_DIR}}/focusnews/videos25fps/;
+              fi'
+    status:
+      - test $(find {{.WMTSLT22_DIR}}/focusnews/videos25fps/ -name "*.mp4" -type f | wc -l) -eq 197
+    generates:
+      - "{{.WMTSLT22_DIR}}/focusnews/videos25fps/*.mp4"
+
+  wmt-slt22:focusnews:extract_mediapipe:
+    desc: Extract MediaPipe poses from the WMT-SLT 22 FocusNews dataset.
+    preconditions:
+      - sh: test $(find {{.WMTSLT22_DIR}}/focusnews/videos/ -name "*.mp4" -type f | wc -l) -eq 197
+        msg: The focusnews directory does not exist or is incomplete.
+    vars:
+      NUM_JOBS: 4
+      FPS: 25
+    cmds:
+      - cmd: |
+              if [[ ! -d {{.WMTSLT22_DIR}}/focusnews/mediapipe_original ]]; then
+                mv {{.WMTSLT22_DIR}}/focusnews/mediapipe {{.WMTSLT22_DIR}}/focusnews/mediapipe_original
+              fi
+        silent: True
+      - cmd: |
+              if [[ -d {{.WMTSLT22_DIR}}/focusnews/mediapipe ]]; then
+                rm -r {{.WMTSLT22_DIR}}/focusnews/mediapipe
+              fi
+        silent: True
+      - cmd: find {{.WMTSLT22_DIR}}/focusnews/videos/ -name "*.mp4" -type f |
+             parallel -j {{.NUM_JOBS}} --bar \
+             'id=$(basename {} .mp4);
+             pose_file="{{.WMTSLT22_DIR}}/focusnews/mediapipe/${id}.pose";
+             python ./scripts/extract_mediapipe.py --video-file {} --poses-file ${pose_file} --fps {{.FPS}} 2> /dev/null'
+    status:
+      - test $(find {{.WMTSLT22_DIR}}/focusnews/mediapipe_original/ -name "*.tar.xz" -type f | wc -l) -eq 197
+      - test $(find {{.WMTSLT22_DIR}}/focusnews/mediapipe/ -name "*.pose" -type f | wc -l) -eq 197
+    generates:
+      - "{{.WMTSLT22_DIR}}/focusnews/mediapipe/*.pose"
+
+
+  wmt-slt22:srf:download:
+    desc: Download the WMT-SLT 22 SRF dataset.
+    preconditions:
+      - sh: "[[ -d {{.WMTSLT22_DIR}} ]]"
+        msg: Specify an existing WMTSLT22_DIR in the .env file.
+      - sh: "[ ! -z {{.WMTSLT22_ZENODO_TOKEN}} ]"
+        msg: Specify the Zenodo API Token in an env variable WMTSLT22_ZENODO_TOKEN
+    vars:
+      NUM_CONNECTIONS: 32
+      ZENODO_RECORD: 6637392
+    cmds:
+      - cmd: |
+              cookie=$(curl -s --cookie-jar - -o /dev/null "https://zenodo.org/record/{{.ZENODO_RECORD}}?token={{.WMTSLT22_ZENODO_TOKEN}}" | tail -n1 | cut -f7);
+              download_url=$(curl -s --cookie "session=${cookie}" "https://zenodo.org/api/records/{{.ZENODO_RECORD}}" | python3 -c "import sys, json; print(json.load(sys.stdin)['files'][0]['links']['self'])");
+              axel -a -n {{.NUM_CONNECTIONS}} -H "Cookie: session=${cookie}" -o {{.WMTSLT22_DIR}}/srf.swisstxt.v1.2.zip $download_url
+    status:
+      - test $(stat -c %s {{.WMTSLT22_DIR}}/srf.swisstxt.v1.2.zip) -eq 8512838220
+    generates:
+      - "{{.WMTSLT22_DIR}}/srf.swisstxt.v1.2.zip"
+
+  wmt-slt22:srf:extract:
+    desc: Extract the WMT-SLT 22 SRF dataset from the zip after download.
+    preconditions:
+      - sh: test $(stat -c %s {{.WMTSLT22_DIR}}/srf.swisstxt.v1.2.zip) -eq 8512838220
+        msg: The zip file does not exist or is not correct, redownload it ({{.WMTSLT22_DIR}}/srf.swisstxt.v1.2.zip).
+    cmds:
+      - cmd: |
+              unzip {{.WMTSLT22_DIR}}/srf.swisstxt.v1.2.zip -d {{.WMTSLT22_DIR}} |
+              pv -l -s $(unzip -Z -1 {{.WMTSLT22_DIR}}/srf.swisstxt.v1.2.zip | wc -l) > /dev/null
+    status:
+      - test $(find {{.WMTSLT22_DIR}}/srf/*/subtitles/ -name "*.srt" -type f | wc -l) -eq 1978
+      - test $(find {{.WMTSLT22_DIR}}/srf/parallel/videos/ -name "*.mp4" -type f | wc -l) -eq 29
+    generates:
+      - "{{.WMTSLT22_DIR}}/srf/"
+
+  wmt-slt22:srf:extract_mediapipe:
+    desc: Extract MediaPipe poses from the WMT-SLT 22 SRF dataset.
+    preconditions:
+      - sh: test $(find {{.WMTSLT22_DIR}}/srf/parallel/videos/ -name "*.mp4" -type f | wc -l) -eq 29
+        msg: The SRF directory does not exist or is incomplete.
+    vars:
+      NUM_JOBS: 4
+      FPS: 25
+    cmds:
+      - cmd: |
+              if [[ -d {{.WMTSLT22_DIR}}/srf/parallel/mediapipe ]]; then
+                rm -r {{.WMTSLT22_DIR}}/srf/parallel/mediapipe
+              fi
+        silent: True
+      - cmd: find {{.WMTSLT22_DIR}}/srf/parallel/videos/ -name "*.mp4" -type f |
+             parallel -j {{.NUM_JOBS}} --bar \
+             'id=$(basename {} .mp4);
+             pose_file="{{.WMTSLT22_DIR}}/srf/parallel/mediapipe/${id}.pose";
+             python ./scripts/extract_mediapipe.py --video-file {} --poses-file ${pose_file} --fps {{.FPS}} 2> /dev/null'
+    status:
+      - test $(find {{.WMTSLT22_DIR}}/srf/parallel/mediapipe/ -name "*.pose" -type f | wc -l) -eq 29
+    generates:
+      - "{{.WMTSLT22_DIR}}/srf/parallel/mediapipe/*.pose"
+
+
+  wmt-slt22:dev:download:
+    desc: Download the WMT-SLT 22 dev set.
+    preconditions:
+      - sh: "[[ -d {{.WMTSLT22_DIR}} ]]"
+        msg: Specify an existing WMTSLT22_DIR in the .env file.
+    vars:
+      NUM_CONNECTIONS: 32
+    cmds:
+      - cmd: axel -a -n {{.NUM_CONNECTIONS}}
+              --output={{.WMTSLT22_DIR}}/dev.v3.0.tar.gz
+              https://files.ifi.uzh.ch/cl/archiv/2022/easier/wmtslt/dev/dev.v3.0.tar.gz
+    status:
+      - test $(stat -c %s {{.WMTSLT22_DIR}}/dev.v3.0.tar.gz) -eq 385160507
+    generates:
+      - "{{.WMTSLT22_DIR}}/dev.v3.0.tar.gz"
+
+  wmt-slt22:dev:extract:
+    desc: Extract the WMT-SLT 22 dev set from the tar.gz after download.
+    preconditions:
+      - sh: test $(stat -c %s {{.WMTSLT22_DIR}}/dev.v3.0.tar.gz) -eq 385160507
+        msg: The zip file does not exist or is not correct, redownload it ({{.WMTSLT22_DIR}}/dev.v3.0.tar.gz).
+    cmds:
+      - cmd: pv {{.WMTSLT22_DIR}}/dev.v3.0.tar.gz | tar -x -I pigz -C {{.WMTSLT22_DIR}}
+    status:
+      - test $(find {{.WMTSLT22_DIR}}/dev/*/videos/ -name "*.mp4" -type f | wc -l) -eq 840
+    generates:
+      - "{{.WMTSLT22_DIR}}/dev/"
+
+  wmt-slt22:dev:extract_mediapipe:
+    desc: Extract MediaPipe poses from the WMT-SLT 22 dev set.
+    preconditions:
+      - sh: test $(find {{.WMTSLT22_DIR}}/dev/*/videos/ -name "*.mp4" -type f | wc -l) -eq 840
+        msg: The dev directory does not exist or is incomplete.
+    vars:
+      NUM_JOBS: 16
+      FPS: 25
+    cmds:
+      - cmd: |
+              if [[ ! -d {{.WMTSLT22_DIR}}/dev/dsgs-de/mediapipe_original ]]; then
+                mv {{.WMTSLT22_DIR}}/dev/dsgs-de/mediapipe {{.WMTSLT22_DIR}}/dev/dsgs-de/mediapipe_original
+              fi
+              if [[ ! -d {{.WMTSLT22_DIR}}/dev/de-dsgs/mediapipe_original ]]; then
+                mv {{.WMTSLT22_DIR}}/dev/de-dsgs/mediapipe {{.WMTSLT22_DIR}}/dev/de-dsgs/mediapipe_original
+              fi
+        silent: True
+      - cmd: |
+              if [[ -d {{.WMTSLT22_DIR}}/dev/dsgs-de/mediapipe ]]; then
+                rm -r {{.WMTSLT22_DIR}}/dev/dsgs-de/mediapipe
+              fi
+              if [[ -d {{.WMTSLT22_DIR}}/dev/de-dsgs/mediapipe ]]; then
+                rm -r {{.WMTSLT22_DIR}}/dev/de-dsgs/mediapipe
+              fi
+        silent: True
+      - cmd: find {{.WMTSLT22_DIR}}/dev/*/videos/ -name "*.mp4" -type f |
+             parallel -j {{.NUM_JOBS}} --bar \
+             'id=$(basename {} .mp4);
+             direction=$(basename $(dirname $(dirname {})));
+             pose_file="{{.WMTSLT22_DIR}}/dev/${direction}/mediapipe/${id}.pose";
+             python ./scripts/extract_mediapipe.py --video-file {} --poses-file ${pose_file} --fps {{.FPS}} 2> /dev/null'
+    status:
+      - test $(find {{.WMTSLT22_DIR}}/dev/*/mediapipe/ -name "*.pose" -type f | wc -l) -eq 840
+    generates:
+      - "{{.WMTSLT22_DIR}}/dev/dsgs-de/mediapipe/*.pose"
+      - "{{.WMTSLT22_DIR}}/dev/de-dsgs/mediapipe/*.pose"
+
+  wmt-slt22:test:download:
+    desc: Download the WMT-SLT 22 test set.
+    preconditions:
+      - sh: "[[ -d {{.WMTSLT22_DIR}} ]]"
+        msg: Specify an existing WMTSLT22_DIR in the .env file.
+    vars:
+      NUM_CONNECTIONS: 32
+    cmds:
+      - cmd: axel -a -n {{.NUM_CONNECTIONS}}
+              --output={{.WMTSLT22_DIR}}/test_sources.v3.0.tar.gz
+              https://files.ifi.uzh.ch/cl/archiv/2022/easier/wmtslt/test/test_sources.v3.0.tar.gz
+    status:
+      - test $(stat -c %s {{.WMTSLT22_DIR}}/test_sources.v3.0.tar.gz) -eq 523098083
+    generates:
+      - "{{.WMTSLT22_DIR}}/test_sources.v3.0.tar.gz"
+
+  wmt-slt22:test:extract:
+    desc: Extract the WMT-SLT 22 test set from the tar.gz after download.
+    preconditions:
+      - sh: test $(stat -c %s {{.WMTSLT22_DIR}}/test_sources.v3.0.tar.gz) -eq 523098083
+        msg: The zip file does not exist or is not correct, redownload it ({{.WMTSLT22_DIR}}/test_sources.v3.0.tar.gz).
+    cmds:
+      - cmd: pv {{.WMTSLT22_DIR}}/test_sources.v3.0.tar.gz | tar -x -I pigz -C {{.WMTSLT22_DIR}}
+    status:
+      - test $(find {{.WMTSLT22_DIR}}/test/dsgs-de/videos/ -name "*.mp4" -type f | wc -l) -eq 488
+      - test $(find {{.WMTSLT22_DIR}}/test/de-dsgs/subtitles/ -name "*.srt" -type f | wc -l) -eq 411
+    generates:
+      - "{{.WMTSLT22_DIR}}/test/"
+
+  wmt-slt22:test:extract_mediapipe:
+    desc: Extract MediaPipe poses from the WMT-SLT 22 test set.
+    preconditions:
+      - sh: test $(find {{.WMTSLT22_DIR}}/test/dsgs-de/videos/ -name "*.mp4" -type f | wc -l) -eq 488
+        msg: The test directory does not exist or is incomplete.
+    vars:
+      NUM_JOBS: 16
+      FPS: 25
+    cmds:
+      - cmd: |
+              if [[ ! -d {{.WMTSLT22_DIR}}/test/dsgs-de/mediapipe_original ]]; then
+                mv {{.WMTSLT22_DIR}}/test/dsgs-de/mediapipe {{.WMTSLT22_DIR}}/test/dsgs-de/mediapipe_original
+              fi
+        silent: True
+      - cmd: |
+              if [[ -d {{.WMTSLT22_DIR}}/test/dsgs-de/mediapipe ]]; then
+                rm -r {{.WMTSLT22_DIR}}/test/dsgs-de/mediapipe
+              fi
+        silent: True
+      - cmd: find {{.WMTSLT22_DIR}}/test/dsgs-de/videos/ -name "*.mp4" -type f |
+             parallel -j {{.NUM_JOBS}} --bar \
+             'id=$(basename {} .mp4);
+             pose_file="{{.WMTSLT22_DIR}}/test/dsgs-de/mediapipe/${id}.pose";
+             python ./scripts/extract_mediapipe.py --video-file {} --poses-file ${pose_file} --fps {{.FPS}} 2> /dev/null'
+    status:
+      - test $(find {{.WMTSLT22_DIR}}/test/dsgs-de/mediapipe/ -name "*.pose" -type f | wc -l) -eq 488
+    generates:
+      - "{{.WMTSLT22_DIR}}/test/dsgs-de/mediapipe/*.pose"
+
+  wmt-slt22:generate_tsv:
+    desc: Generate TSV files for the WMT-SLT 22 datasets.
+    preconditions:
+      - sh: "[[ -d {{.FAIRSEQ_ROOT}} ]]"
+        msg: Specify the FAIRSEQ_ROOT in the .env file.
+      - sh: "[ ! -z {{.DATA_DIR}} ]"
+        msg: Specify the DATA_DIR in the .env file.
+      - sh: test $(find {{.WMTSLT22_DIR}}/focusnews/mediapipe/ -name "*.pose" -type f | wc -l) -eq 197
+        msg: Mediapipe features for focusnews have not been generated yet or are incomplete. Run the extraction.
+      - sh: test $(find {{.WMTSLT22_DIR}}/srf/parallel/mediapipe/ -name "*.pose" -type f | wc -l) -eq 29
+        msg: Mediapipe features for SRF have not been generated yet or are incomplete. Run the extraction.
+      - sh: test $(find {{.WMTSLT22_DIR}}/dev/*/mediapipe/ -name "*.pose" -type f | wc -l) -eq 840
+        msg: Mediapipe features for dev have not been generated yet or are incomplete. Run the extraction.
+      - sh: test $(find {{.WMTSLT22_DIR}}/test/dsgs-de/mediapipe/ -name "*.pose" -type f | wc -l) -eq 488
+        msg: Mediapipe features for test have not been generated yet or are incomplete. Run the extraction.
+    cmds:
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
+                --dataset wmt_slt22 \
+                --path {{.WMTSLT22_DIR}} \
+                --tsv-out {{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnews.tsv \
+                --type mediapipe \
+                --split focusnews \
+                --signs-lang dsgs \
+                --translation-lang de
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
+                --dataset wmt_slt22 \
+                --path {{.WMTSLT22_DIR}} \
+                --tsv-out {{.DATA_DIR}}/wmtslt22.mediapipe.train_srf.tsv \
+                --type mediapipe \
+                --split srf_parallel \
+                --signs-lang dsgs \
+                --translation-lang de
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
+                --dataset wmt_slt22 \
+                --path {{.WMTSLT22_DIR}} \
+                --tsv-out {{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnewsandsrf.tsv \
+                --type mediapipe \
+                --split focusnews srf_parallel \
+                --signs-lang dsgs \
+                --translation-lang de
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
+                --dataset wmt_slt22 \
+                --path {{.WMTSLT22_DIR}} \
+                --tsv-out {{.DATA_DIR}}/wmtslt22.train_srfmonolingual.tsv \
+                --split srf_monolingual \
+                --translation-lang de
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
+                --dataset wmt_slt22 \
+                --path {{.WMTSLT22_DIR}} \
+                --tsv-out {{.DATA_DIR}}/wmtslt22.mediapipe.dev_dsgs-de.tsv \
+                --type mediapipe \
+                --split dev_dsgs-de \
+                --signs-lang dsgs \
+                --translation-lang de
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
+                --dataset wmt_slt22 \
+                --path {{.WMTSLT22_DIR}} \
+                --tsv-out {{.DATA_DIR}}/wmtslt22.mediapipe.dev_de-dsgs.tsv \
+                --type mediapipe \
+                --split dev_de-dsgs \
+                --signs-lang dsgs \
+                --translation-lang de
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
+                --dataset wmt_slt22 \
+                --path {{.WMTSLT22_DIR}} \
+                --tsv-out {{.DATA_DIR}}/wmtslt22.mediapipe.test_dsgs-de.tsv \
+                --type mediapipe \
+                --split test_dsgs-de \
+                --signs-lang dsgs
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
+                --dataset wmt_slt22 \
+                --path {{.WMTSLT22_DIR}} \
+                --tsv-out {{.DATA_DIR}}/wmtslt22.test_de-dsgs.tsv \
+                --split test_de-dsgs \
+                --translation-lang de
+    status:
+      - test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnews.tsv | cut -d ' ' -f 1) = "aae212d4d234afdc98bb3646e217b9c6"
+      - test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.train_srf.tsv | cut -d ' ' -f 1) = "7e629c86169f29d570cd04c80cd08c48"
+      - test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnewsandsrf.tsv | cut -d ' ' -f 1) = "1a52cf51252936514deee943934ad10a"
+      - test $(md5sum {{.DATA_DIR}}/wmtslt22.train_srfmonolingual.tsv | cut -d ' ' -f 1) = "2ed88554bb111625af157a736a7f2e65"
+      - test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.dev_dsgs-de.tsv | cut -d ' ' -f 1) = "cd4a8b017f371e34ed41fa16258fc2bb"
+      - test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.dev_de-dsgs.tsv | cut -d ' ' -f 1) = "87a9b15d060f3e183e2ed4684a2fca9d"
+      - test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.test_dsgs-de.tsv | cut -d ' ' -f 1) = "5f4c436c1c2324fed79cd0e052e65f3a"
+      - test $(md5sum {{.DATA_DIR}}/wmtslt22.test_de-dsgs.tsv | cut -d ' ' -f 1) = "53d11cdd7657acae2b454964b0da85c2"
+    generates:
+      - "{{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnews.tsv"
+      - "{{.DATA_DIR}}/wmtslt22.mediapipe.train_srf.tsv"
+      - "{{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnewsandsrf.tsv"
+      - "{{.DATA_DIR}}/wmtslt22.train_srfmonolingual.tsv"
+      - "{{.DATA_DIR}}/wmtslt22.mediapipe.dev_dsgs-de.tsv"
+      - "{{.DATA_DIR}}/wmtslt22.mediapipe.dev_de-dsgs.tsv"
+      - "{{.DATA_DIR}}/wmtslt22.mediapipe.test_dsgs-de.tsv"
+      - "{{.DATA_DIR}}/wmtslt22.test_de-dsgs.tsv"
+
+  wmt-slt22:train_sentencepiece:
+    desc: Train SentencePiece models for the WMT-SLT 22 datasets.
+    preconditions:
+      - sh: "[[ -d {{.FAIRSEQ_ROOT}} ]]"
+        msg: Specify the FAIRSEQ_ROOT in the .env file.
+      - sh: "[ ! -z {{.DATA_DIR}} ]"
+        msg: Specify the DATA_DIR in the .env file.
+      - sh: "[ ! -z {{.VOCAB_SIZE}} ]"
+        msg: Specify a VOCAB_SIZE.
+      - sh: |
+            test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnews.tsv | cut -d ' ' -f 1) = "aae212d4d234afdc98bb3646e217b9c6"
+            test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.train_srf.tsv | cut -d ' ' -f 1) = "7e629c86169f29d570cd04c80cd08c48"
+            test $(md5sum {{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnewsandsrf.tsv | cut -d ' ' -f 1) = "1a52cf51252936514deee943934ad10a"
+            test $(md5sum {{.DATA_DIR}}/wmtslt22.train_srfmonolingual.tsv | cut -d ' ' -f 1) = "2ed88554bb111625af157a736a7f2e65"
+        msg: TSV files have not been generated yet or are incomplete. Prepare them before running this.
+    cmds:
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/train_spm.py \
+                --tsv-file {{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnews.tsv \
+                --spm-prefix {{.DATA_DIR}}/wmtslt22.focusnews.unigram{{.VOCAB_SIZE}} \
+                --vocab-size {{.VOCAB_SIZE}} \
+                --vocab-type unigram
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/train_spm.py \
+                --tsv-file {{.DATA_DIR}}/wmtslt22.mediapipe.train_srf.tsv \
+                --spm-prefix {{.DATA_DIR}}/wmtslt22.srf.unigram{{.VOCAB_SIZE}} \
+                --vocab-size {{.VOCAB_SIZE}} \
+                --vocab-type unigram
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/train_spm.py \
+                --tsv-file {{.DATA_DIR}}/wmtslt22.mediapipe.train_focusnewsandsrf.tsv \
+                --spm-prefix {{.DATA_DIR}}/wmtslt22.focusnewsandsrf.unigram{{.VOCAB_SIZE}} \
+                --vocab-size {{.VOCAB_SIZE}} \
+                --vocab-type unigram
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/train_spm.py \
+                --tsv-file {{.DATA_DIR}}/wmtslt22.train_srfmonolingual.tsv \
+                --spm-prefix {{.DATA_DIR}}/wmtslt22.srfmonolingual.unigram{{.VOCAB_SIZE}} \
+                --vocab-size {{.VOCAB_SIZE}} \
+                --vocab-type unigram
+    status:
+      - test $(cat {{.DATA_DIR}}/wmtslt22.focusnews.unigram{{.VOCAB_SIZE}}.vocab | wc -l) -eq {{.VOCAB_SIZE}}
+      - test $(cat {{.DATA_DIR}}/wmtslt22.focusnews.unigram{{.VOCAB_SIZE}}.txt | wc -l) -eq $(({{.VOCAB_SIZE}}-4))
+      - test $(cat {{.DATA_DIR}}/wmtslt22.srf.unigram{{.VOCAB_SIZE}}.vocab | wc -l) -eq {{.VOCAB_SIZE}}
+      - test $(cat {{.DATA_DIR}}/wmtslt22.srf.unigram{{.VOCAB_SIZE}}.txt | wc -l) -eq $(({{.VOCAB_SIZE}}-4))
+      - test $(cat {{.DATA_DIR}}/wmtslt22.focusnewsandsrf.unigram{{.VOCAB_SIZE}}.vocab | wc -l) -eq {{.VOCAB_SIZE}}
+      - test $(cat {{.DATA_DIR}}/wmtslt22.focusnewsandsrf.unigram{{.VOCAB_SIZE}}.txt | wc -l) -eq $(({{.VOCAB_SIZE}}-4))
+      - test $(cat {{.DATA_DIR}}/wmtslt22.srfmonolingual.unigram{{.VOCAB_SIZE}}.vocab | wc -l) -eq {{.VOCAB_SIZE}}
+      - test $(cat {{.DATA_DIR}}/wmtslt22.srfmonolingual.unigram{{.VOCAB_SIZE}}.txt | wc -l) -eq $(({{.VOCAB_SIZE}}-4))
+    generates:
+      - "{{.DATA_DIR}}/focusnews.unigram{{.VOCAB_SIZE}}.model"
+      - "{{.DATA_DIR}}/focusnews.unigram{{.VOCAB_SIZE}}.txt"
+      - "{{.DATA_DIR}}/focusnews.unigram{{.VOCAB_SIZE}}.vocab"
+      - "{{.DATA_DIR}}/srf.unigram{{.VOCAB_SIZE}}.model"
+      - "{{.DATA_DIR}}/srf.unigram{{.VOCAB_SIZE}}.txt"
+      - "{{.DATA_DIR}}/srf.unigram{{.VOCAB_SIZE}}.vocab"
+      - "{{.DATA_DIR}}/focusnewsandsrf.unigram{{.VOCAB_SIZE}}.model"
+      - "{{.DATA_DIR}}/focusnewsandsrf.unigram{{.VOCAB_SIZE}}.txt"
+      - "{{.DATA_DIR}}/focusnewsandsrf.unigram{{.VOCAB_SIZE}}.vocab"
+      - "{{.DATA_DIR}}/srfmonolingual.unigram{{.VOCAB_SIZE}}.model"
+      - "{{.DATA_DIR}}/srfmonolingual.unigram{{.VOCAB_SIZE}}.txt"
+      - "{{.DATA_DIR}}/srfmonolingual.unigram{{.VOCAB_SIZE}}.vocab"
+
+  egosign:val:front:extract_mediapipe:
+    desc: Extract MediaPipe poses from the EgoSign dataset, front view. (In calcula, EGOSIGN_DIR = /mnt/gpid08/datasets/How2Sign/EgoSign)
+    preconditions:
+      - sh: "[[ -d {{.EGOSIGN_DIR}} ]]"
+        msg: Specify the EGOSIGN_DIR in the .env file.
+      - sh: test $(find {{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/val/*/ -not -path "{{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/val/_0.extra/*" -name "*rgb_front.mp4" -type f | wc -l) -eq 122
+        msg: The videos are not in this path, or it is incomplete. Find the right path.
+    vars:
+      NUM_JOBS: 16
+      FPS: 30
+    cmds:
+      - cmd: |
+              if [[ -d {{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/val/rgb_front/features/mediapipe ]]; then
+                echo "Mediapipe folder already exists"
+              fi
+        silent: False
+      - cmd: find {{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/val/*/ -not -path "{{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/val/_0.extra/*" -name "*rgb_front.mp4" -type f |
+             parallel -j {{.NUM_JOBS}} --bar \
+             'id_dir=$(basename $(dirname {}));
+             id=$(basename {} .mp4);
+             echo id_dir $id_dir;
+             echo id $id;
+             pose_file="{{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/val/rgb_front/features/mediapipe/${id}.pose";
+             echo pose_file $pose_file;
+             if [ ! -e "$pose_file" ]; then python ./scripts/extract_mediapipe.py --video-file {} --poses-file ${pose_file} --fps {{.FPS}}; fi'
+        silent: False
+    status:
+      - test $(find {{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/val/rgb_front/features/mediapipe/*/ -name "*_rgb_front.pose" -type f | wc -l) -eq 122
+    generates:
+      - "{{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/val/rgb_front/features/mediapipe/*_rgb_front.pose"
+
+  egosign:test:front:extract_mediapipe:
+    desc: Extract MediaPipe poses from the EgoSign dataset, front view. (In calcula, EGOSIGN_DIR = /mnt/gpid08/datasets/How2Sign/EgoSign)
+    preconditions:
+      - sh: "[[ -d {{.EGOSIGN_DIR}} ]]"
+        msg: Specify the EGOSIGN_DIR in the .env file.
+      - sh: test $(find {{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/test/*/ -not -path "{{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/test/_0.extra/*" -name "*rgb_front.mp4" -type f | wc -l) -eq 149
+        msg: The videos are not in this path, or it is incomplete. Find the right path.
+    vars:
+      NUM_JOBS: 16
+      FPS: 30
+    cmds:
+      - cmd: |
+              if [[ -d {{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/test/rgb_front/features/mediapipe ]]; then
+                echo "Mediapipe folder already exists"
+              fi
+        silent: True
+      - cmd: find {{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/test/*/ -not -path "{{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/test/_0.extra/*" -name "*rgb_front.mp4" -type f |
+             parallel -j {{.NUM_JOBS}} --bar \
+             'id_dir=$(basename $(dirname {}));
+             id=$(basename {} .mp4);
+             echo id_dir $id_dir;
+             echo id $id;
+             pose_file="{{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/test/rgb_front/features/mediapipe/${id}.pose";
+             echo pose_file $pose_file;
+             if [ ! -e "$pose_file" ]; then python ./scripts/extract_mediapipe.py --video-file {} --poses-file ${pose_file} --fps {{.FPS}}; fi'
+    status:
+      - test $(find {{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/test/rgb_front/features/mediapipe/*/ -name "*_rgb_front.pose" -type f | wc -l) -eq 149
+    generates:
+      - "{{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/test/rgb_front/features/mediapipe/*_rgb_front.pose"
+
+  egosign:val:side:extract_mediapipe:
+    desc: Extract MediaPipe poses from the EgoSign dataset, side view. (In calcula, EGOSIGN_DIR = /mnt/gpid08/datasets/How2Sign/EgoSign)
+    preconditions:
+      - sh: "[[ -d {{.EGOSIGN_DIR}} ]]"
+        msg: Specify the EGOSIGN_DIR in the .env file.
+      - sh: test $(find {{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/val/*/ -not -path "{{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/val/_0.extra/*" -name "*rgb_side.mp4" -type f | wc -l) -eq 122
+        msg: The videos are not in this path, or it is incomplete. Find the right path.
+    vars:
+      NUM_JOBS: 16
+      FPS: 30
+    cmds:
+      - cmd: |
+              if [[ -d {{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/val/rgb_side/features/mediapipe ]]; then
+                echo "Mediapipe folder already exists"
+              fi
+        silent: False
+      - cmd: find {{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/val/*/ -not -path "{{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/val/_0.extra/*" -name "*rgb_side.mp4" -type f |
+             parallel -j {{.NUM_JOBS}} --bar \
+             'id_dir=$(basename $(dirname {}));
+             id=$(basename {} .mp4);
+             echo id_dir $id_dir;
+             echo id $id;
+             pose_file="{{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/val/rgb_side/features/mediapipe/${id}.pose";
+             echo pose_file $pose_file;
+             if [ ! -e "$pose_file" ]; then python ./scripts/extract_mediapipe.py --video-file {} --poses-file ${pose_file} --fps {{.FPS}}; fi'
+        silent: False
+    status:
+      - test $(find {{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/val/rgb_side/features/mediapipe/*/ -name "*_rgb_side.pose" -type f | wc -l) -eq 122
+    generates:
+      - "{{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/val/rgb_side/features/mediapipe/*_rgb_side.pose"
+
+  egosign:test:side:extract_mediapipe:
+    desc: Extract MediaPipe poses from the EgoSign dataset, side view. (In calcula, EGOSIGN_DIR = /mnt/gpid08/datasets/How2Sign/EgoSign)
+    preconditions:
+      - sh: "[[ -d {{.EGOSIGN_DIR}} ]]"
+        msg: Specify the EGOSIGN_DIR in the .env file.
+      - sh: test $(find {{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/test/*/ -not -path "{{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/test/_0.extra/*" -name "*rgb_side.mp4" -type f | wc -l) -eq 149
+        msg: The videos are not in this path, or it is incomplete. Find the right path.
+    vars:
+      NUM_JOBS: 16
+      FPS: 30
+    cmds:
+      - cmd: |
+              if [[ -d {{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/test/rgb_side/features/mediapipe ]]; then
+                echo "Mediapipe folder already exists"
+              fi
+        silent: True
+      - cmd: find {{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/test/*/ -not -path "{{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/test/_0.extra/*" -name "*rgb_side.mp4" -type f |
+             parallel -j {{.NUM_JOBS}} --bar \
+             'id_dir=$(basename $(dirname {}));
+             id=$(basename {} .mp4);
+             echo id_dir $id_dir;
+             echo id $id;
+             pose_file="{{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/test/rgb_side/features/mediapipe/${id}.pose";
+             echo pose_file $pose_file;
+             if [ ! -e "$pose_file" ]; then python ./scripts/extract_mediapipe.py --video-file {} --poses-file ${pose_file} --fps {{.FPS}}; fi'
+    status:
+      - test $(find {{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/test/rgb_side/features/mediapipe/*/ -name "*_rgb_side.pose" -type f | wc -l) -eq 149
+    generates:
+      - "{{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/test/rgb_side/features/mediapipe/*_rgb_side.pose"
+
+  egosign:val:head:extract_mediapipe:
+    desc: Extract MediaPipe poses from the EgoSign dataset, head view.
+    preconditions:
+      - sh: "[[ -d {{.EGOSIGN_DIR}} ]]"
+        msg: Specify the EGOSIGN_DIR in the .env file.
+      - sh: test $(find {{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/val/*/ -not -path "{{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/val/_0.extra/*" -name "*rgb_head.mp4" -type f | wc -l) -eq 122
+        msg: The videos are not in this path, or it is incomplete. Find the right path.
+    vars:
+      NUM_JOBS: 16
+      FPS: 30
+    cmds:
+      - cmd: |
+              if [[ -d {{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/val/rgb_head/features/mediapipe ]]; then
+                echo "Mediapipe folder already exists"
+              fi
+        silent: False
+      - cmd: find {{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/val/*/ -not -path "{{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/val/_0.extra/*" -name "*rgb_head.mp4" -type f |
+             parallel -j {{.NUM_JOBS}} --bar \
+             'id_dir=$(basename $(dirname {}));
+             id=$(basename {} .mp4);
+             echo id_dir $id_dir;
+             echo id $id;
+             pose_file="{{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/val/rgb_head/features/mediapipe/${id}.pose";
+             echo pose_file $pose_file;
+             if [ ! -e "$pose_file" ]; then python ./scripts/extract_mediapipe.py --video-file {} --poses-file ${pose_file} --fps {{.FPS}}; fi'
+    status:
+      - test $(find {{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/val/rgb_head/features/mediapipe/*/ -name "*rgb_head.pose" -type f | wc -l) -eq 122
+    generates:
+      - "{{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/val/rgb_head/features/mediapipe/*_rgb_head.pose"
+
+  egosign:test:head:extract_mediapipe:
+    desc: Extract MediaPipe poses from the EgoSign dataset, head view.
+    preconditions:
+      - sh: "[[ -d {{.EGOSIGN_DIR}} ]]"
+        msg: Specify the EGOSIGN_DIR in the .env file.
+      - sh: test $(find {{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/test/*/ -not -path "{{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/test/_0.extra/*" -name "*rgb_head.mp4" -type f | wc -l) -eq 149
+        msg: The videos are not in this path, or it is incomplete. Find the right path.
+    vars:
+      NUM_JOBS: 16
+      FPS: 30
+    cmds:
+      - cmd: |
+              if [[ -d {{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/test/rgb_head/features/mediapipe ]]; then
+                echo "Mediapipe folder already exists"
+              fi
+        silent: False
+      - cmd: find {{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/test/*/ -not -path "{{.EGOSIGN_DIR}}/egoSign/raw_data/PC2/test/_0.extra/*" -name "*rgb_head.mp4" -type f |
+             parallel -j {{.NUM_JOBS}} --bar \
+             'id_dir=$(basename $(dirname {}));
+             id=$(basename {} .mp4);
+             echo id_dir $id_dir;
+             echo id $id;
+             pose_file="{{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/test/rgb_head/features/mediapipe/${id}.pose";
+             echo pose_file $pose_file;
+             if [ ! -e "$pose_file" ]; then python ./scripts/extract_mediapipe.py --video-file {} --poses-file ${pose_file} --fps {{.FPS}}; fi'
+    status:
+      - test $(find {{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/test/rgb_head/features/mediapipe/*/ -name "*_rgb_head.pose" -type f | wc -l) -eq 149
+    generates:
+      - "{{.EGOSIGN_DIR}}/data_cvpr23/Egosign/video_level/test/rgb_head/features/mediapipe/*_rgb_head.pose"
+  
+  how2sign:val:front:extract_mediapipe:
+    desc: Extract MediaPipe poses from the How2Sign dataset, front view. (In calcula, HOW2SIGN_DIR = /mnt/gpid08/datasets/How2Sign/How2Sign)
+    preconditions:
+      - sh: "[[ -d {{.EGOSIGN_DIR}} ]]"
+        msg: Specify the EGOSIGN_DIR in the .env file.
+      - sh: "[[ -d {{.HOW2SIGN_DIR}} ]]"
+        msg: Specify the HOW2SIGN_DIR in the .env file.
+      - sh: test $(find {{.HOW2SIGN_DIR}}/video_level/val/rgb_front/raw_videos -name "*rgb_front.mp4" -type f | wc -l) -eq 132
+        msg: The videos are not in this path, or it is incomplete. Find the right path.
+    vars:
+      NUM_JOBS: 8
+      FPS: 25
+    cmds:
+      - cmd: |
+              if [[ -d {{.EGOSIGN_DIR}}/data_cvpr23/How2Sign/video_level/val/rgb_front/features/mediapipe ]]; then
+                echo "Mediapipe folder already exists"
+              fi
+        silent: False
+      - cmd: find {{.HOW2SIGN_DIR}}/video_level/val/rgb_front/raw_videos -name "*rgb_front.mp4" -type f |
+             parallel -j {{.NUM_JOBS}} --bar \
+             'id=$(basename {} .mp4);
+             echo id $id;
+             pose_file="{{.EGOSIGN_DIR}}/data_cvpr23/How2Sign/video_level/val/rgb_front/features/mediapipe/${id}.pose";
+             echo pose_file $pose_file;
+             if [ ! -e "$pose_file" ]; then python ./scripts/extract_mediapipe.py --video-file {} --poses-file ${pose_file} --fps {{.FPS}}; fi'
+        silent: False
+    status:
+      - test $(find {{.EGOSIGN_DIR}}/data_cvpr23/How2Sign/video_level/val/rgb_front/features/mediapipe -name "*rgb_front.pose" -type f | wc -l) -eq 132
+    generates:
+      - "{{.EGOSIGN_DIR}}/data_cvpr23/How2Sign/video_level/val/rgb_front/features/mediapipe/*_rgb_front.pose"
+
+  how2sign:test:front:extract_mediapipe:
+    desc: Extract MediaPipe poses from the How2Sign dataset, front view. (In calcula, HOW2SIGN_DIR = /mnt/gpid08/datasets/How2Sign/How2Sign)
+    preconditions:
+      - sh: "[[ -d {{.EGOSIGN_DIR}} ]]"
+        msg: Specify the EGOSIGN_DIR in the .env file.
+      - sh: "[[ -d {{.HOW2SIGN_DIR}} ]]"
+        msg: Specify the HOW2SIGN_DIR in the .env file.
+      - sh: test $(find {{.HOW2SIGN_DIR}}/video_level/test/rgb_front/raw_videos -name "*rgb_front.mp4" -type f | wc -l) -eq 184
+        msg: The videos are not in this path, or it is incomplete. Find the right path.
+    vars:
+      NUM_JOBS: 16
+      FPS: 25
+    cmds:
+      - cmd: |
+              if [[ -d {{.EGOSIGN_DIR}}/data_cvpr23/How2Sign/video_level/test/rgb_front/features/mediapipe ]]; then
+                echo "Mediapipe folder already exists"
+              fi
+        silent: False
+      - cmd: find {{.HOW2SIGN_DIR}}/video_level/test/rgb_front/raw_videos -name "*rgb_front.mp4" -type f |
+             parallel -j {{.NUM_JOBS}} --bar \
+             'id=$(basename {} .mp4);
+             echo id $id;
+             pose_file="{{.EGOSIGN_DIR}}/data_cvpr23/How2Sign/video_level/test/rgb_front/features/mediapipe/${id}.pose";
+             echo pose_file $pose_file;
+             if [ ! -e "$pose_file" ]; then python ./scripts/extract_mediapipe.py --video-file {} --poses-file ${pose_file} --fps {{.FPS}}; fi'
+        silent: False
+    status:
+      - test $(find {{.EGOSIGN_DIR}}/data_cvpr23/How2Sign/video_level/test/rgb_front/features/mediapipe -name "*rgb_front.pose" -type f | wc -l) -eq 184
+    generates:
+      - "{{.EGOSIGN_DIR}}/data_cvpr23/How2Sign/video_level/test/rgb_front/features/mediapipe/*_rgb_front.pose"
+
+  how2sign:train:front:extract_mediapipe:
+    desc: Extract MediaPipe poses from the How2Sign dataset, front view. (In calcula, HOW2SIGN_DIR = /mnt/gpid08/datasets/How2Sign/How2Sign)
+    preconditions:
+      - sh: "[[ -d {{.EGOSIGN_DIR}} ]]"
+        msg: Specify the EGOSIGN_DIR in the .env file.
+      - sh: "[[ -d {{.HOW2SIGN_DIR}} ]]"
+        msg: Specify the HOW2SIGN_DIR in the .env file.
+      - sh: test $(find {{.HOW2SIGN_DIR}}/video_level/train/rgb_front/raw_videos -name "*rgb_front.mp4" -type f | wc -l) -eq 2213
+        msg: The videos are not in this path, or it is incomplete. Find the right path.
+    vars:
+      NUM_JOBS: 16
+      FPS: 25
+    cmds:
+      - cmd: |
+              if [[ -d {{.EGOSIGN_DIR}}/data_cvpr23/How2Sign/video_level/train/rgb_front/features/mediapipe ]]; then
+                echo "Mediapipe folder already exists"
+              fi
+        silent: False
+      - cmd: find {{.HOW2SIGN_DIR}}/video_level/train/rgb_front/raw_videos -name "*rgb_front.mp4" -type f |
+             parallel -j {{.NUM_JOBS}} --bar \
+             'id=$(basename {} .mp4);
+             echo id $id;
+             pose_file="{{.EGOSIGN_DIR}}/data_cvpr23/How2Sign/video_level/train/rgb_front/features/mediapipe/${id}.pose";
+             echo pose_file $pose_file;
+             if [ ! -e "$pose_file" ]; then python ./scripts/extract_mediapipe.py --video-file {} --poses-file ${pose_file} --fps {{.FPS}}; fi'
+        silent: False
+    status:
+      - test $(find {{.EGOSIGN_DIR}}/data_cvpr23/How2Sign/video_level/train/rgb_front/features/mediapipe -name "*rgb_front.pose" -type f | wc -l) -eq 2213
+    generates:
+      - "{{.EGOSIGN_DIR}}/data_cvpr23/How2Sign/video_level/train/rgb_front/features/mediapipe/*_rgb_front.pose"
+
+  how2sign:generate_mp_tsv:
+    desc: Generate TSV files for the How2Sign dataset.
+    preconditions:
+      - sh: "[[ -d {{.FAIRSEQ_ROOT}} ]]"
+        msg: Specify the FAIRSEQ_ROOT in the .env file.
+      - sh: "[ ! -z {{.DATA_DIR}} ]"
+        msg: Specify the DATA_DIR in the .env file.
+      - sh: "[ ! -z {{.SAVE_DIR}} ]"
+        msg: Specify the SAVE_DIR in the .env file.
+      - sh: test $(find {{.DATA_DIR}}/How2Sign/video_level/*/*/features/mediapipe/* -name "*.pose" -type f | wc -l) -eq 2529
+        msg: Mediapipe features have not been generated yet or are incomplete. Run the extraction.
+    cmds:
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
+                --dataset how2sign \
+                --path {{.DATA_DIR}} \
+                --tsv-out {{.SAVE_DIR}}/cvpr23.fairseq.mediapipe.train.how2sign.tsv \
+                --type mediapipe \
+                --split train \
+                --signs-lang asl \
+                --translation-lang en
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
+                --dataset how2sign \
+                --path {{.DATA_DIR}} \
+                --tsv-out {{.SAVE_DIR}}/cvpr23.fairseq.mediapipe.val.how2sign.tsv \
+                --type mediapipe \
+                --split val \
+                --signs-lang asl \
+                --translation-lang en
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/generate_tsv.py \
+                --dataset how2sign \
+                --path {{.DATA_DIR}} \
+                --tsv-out {{.SAVE_DIR}}/cvpr23.fairseq.mediapipe.test.how2sign.tsv \
+                --type mediapipe \
+                --split test \
+                --signs-lang asl \
+                --translation-lang en
+    status:
+      - test $(md5sum {{.SAVE_DIR}}/cvpr23.fairseq.mediapipe.train.how2sign.tsv | cut -d ' ' -f 1) = "8764b8177865a59b580f3f48c5ee9a3d"
+      - test $(md5sum {{.SAVE_DIR}}/cvpr23.fairseq.mediapipe.dev.how2sign.tsv | cut -d ' ' -f 1) = "47aa7b71e79d17aa3b3075ed230712f1"
+      - test $(md5sum {{.SAVE_DIR}}/cvpr23.fairseq.mediapipe.test.how2sign.tsv | cut -d ' ' -f 1) = "f186de8f314672f0bf3c4c2753f9fe5e"
+    generates:
+      - "{{.SAVE_DIR}}/cvpr23.fairseq.mediapipe.train.how2sign.tsv"
+      - "{{.SAVE_DIR}}/cvpr23.fairseq.mediapipe.dev.how2sign.tsv"
+      - "{{.SAVE_DIR}}/cvpr23.fairseq.mediapipe.test.how2sign.tsv"
+
+
+  how2sign:train_sentencepiece: #This is deprecated
+    desc: Train SentencePiece models for the How2Sign dataset.
+    preconditions:
+      - sh: "[[ -d {{.FAIRSEQ_ROOT}} ]]"
+        msg: Specify the FAIRSEQ_ROOT in the .env file.
+      - sh: "[ ! -z {{.SAVE_DIR}} ]"
+        msg: Specify the SAVE_DIR in the .env file.
+      - sh: "[ ! -z {{.VOCAB_SIZE}} ]"
+        msg: Specify a VOCAB_SIZE.
+    cmds:
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/train_spm.py \
+                --tsv-file {{.SAVE_DIR}}/cvpr23.fairseq.mediapipe.train.how2sign.tsv \
+                --spm-prefix {{.SAVE_DIR}}/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}} \
+                --vocab-size {{.VOCAB_SIZE}} \
+                --vocab-type unigram \
+                --column translation_tokenized \
+                --preprocess True
+    status:
+      - test $(cat {{.SAVE_DIR}}/cvpr23.train_how2sign.unigram{{.VOCAB_SIZE}}.vocab | wc -l) -eq {{.VOCAB_SIZE}}
+      - test $(cat {{.SAVE_DIR}}/cvpr23.train_how2sign.unigram{{.VOCAB_SIZE}}.txt | wc -l) -eq $(({{.VOCAB_SIZE}}-4))
+    generates:
+      - "{{.SAVE_DIR}}/cvpr23.train_how2sign.unigram{{.VOCAB_SIZE}}.model"
+      - "{{.SAVE_DIR}}/cvpr23.train_how2sign.unigram{{.VOCAB_SIZE}}.txt"
+      - "{{.SAVE_DIR}}/cvpr23.train_how2sign.unigram{{.VOCAB_SIZE}}.vocab"
+
+  how2sign:train_sentencepiece_lowercased:
+    desc: Train SentencePiece models for the How2Sign dataset, for lowercased text.
+    preconditions:
+      - sh: "[[ -d {{.FAIRSEQ_ROOT}} ]]"
+        msg: Specify the FAIRSEQ_ROOT in the .env file.
+      - sh: "[ ! -z {{.SAVE_DIR}} ]"
+        msg: Specify the SAVE_DIR in the .env file.
+      - sh: "[ ! -z {{.VOCAB_SIZE}} ]"
+        msg: Specify a VOCAB_SIZE.
+    cmds:
+      - cmd: |
+              PYTHONPATH=$PYTHONPATH:{{.FAIRSEQ_ROOT}} \
+              python {{.FAIRSEQ_ROOT}}/examples/sign_language/scripts/train_spm.py \
+                --tsv-file {{.SAVE_DIR}}/cvpr23.fairseq.mediapipe.train.how2sign.tsv \
+                --spm-prefix {{.SAVE_DIR}}/vocab/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_lowercased \
+                --vocab-size {{.VOCAB_SIZE}} \
+                --vocab-type unigram \
+                --lowercase True \
+                --column translation
+    status:
+      - test $(cat {{.SAVE_DIR}}/vocab/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_tokenized.vocab | wc -l) -eq {{.VOCAB_SIZE}}
+      - test $(cat {{.SAVE_DIR}}/vocab/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_tokenized.txt | wc -l) -eq $(({{.VOCAB_SIZE}}-4))
+    generates:
+      - "{{.SAVE_DIR}}/vocab/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_tokenized.model"
+      - "{{.SAVE_DIR}}/vocab/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_tokenized.txt"
+      - "{{.SAVE_DIR}}/vocab/cvpr23.train.how2sign.unigram{{.VOCAB_SIZE}}_tokenized.vocab"
+  
+  greet:
+    cmds:
+      - cmd: echo "Testing, {{.DATA_DIR}}!"
+
+  train_slt:
+    preconditions:
+      - sh: "[[ -d {{.DATA_DIR}} ]]"
+        msg: Specify the DATA_DIR in the .env file
+      - sh: "[[ {{.SAVE_DIR}} ]]"
+        msg: Specify the SAVE_DIR in the .env file
+      - sh: "[[ {{.WANDB_ENTITY}} ]]"
+        msg: Specify the WANDB_ENTITY in the .env file
+      - sh: "[[ {{.WANDB_PROJECT}} ]]"
+        msg: Specify the WANDB_PROJECT in the .env file
+      - sh: "[ {{.NUM_GPUS}} -gt 0 ]"
+        msg: Use at least 1 GPU to train the model
+      - sh: '[ "{{.EXPERIMENT}}" ]'
+        msg: Specify a name for the EXPERIMENT
+      - sh: '[ "{{.CONFIG_DIR}}/{{.EXPERIMENT}}.yaml" ]'
+        msg: The yaml does not exist
+    vars:
+      BASE_UPDATE_FREQ:
+        sh: |
+            cat {{.CONFIG_DIR}}/{{.EXPERIMENT}}.yaml | grep "update_freq" | awk -F'[][]' '{print $2}'
+      NUM_GPUS:
+        sh: |
+            if [ "$CUDA_VISIBLE_DEVICES" ]; then
+              echo $CUDA_VISIBLE_DEVICES | sed 's/[^,]//g' | wc -c
+            else
+              echo 0
+            fi
+      UPDATE_FREQ:
+        sh: |
+            if [ {{.NUM_GPUS}} -gt 0 ]; then
+              echo $(( {{.BASE_UPDATE_FREQ}} / {{.NUM_GPUS}} ))
+            else
+              echo {{.BASE_UPDATE_FREQ}}
+            fi
+    cmds:
+      - cmd: echo "Running experiment {{.EXPERIMENT}}"
+        silent: true
+      - cmd: echo "Running experiment's file {{.CONFIG_DIR}}/{{.EXPERIMENT}}.yaml"
+        silent: true
+
+      - cmd: |
+              WANDB_NAME={{.EXPERIMENT}} \
+              fairseq-hydra-train \
+              --config-dir {{.CONFIG_DIR}} \
+              --config-name {{.EXPERIMENT}}.yaml \
+              optimization.update_freq=[{{.UPDATE_FREQ}}]
+        silent: false
+
+  train_sltd:
+    preconditions:
+      - sh: "[[ -d {{.DATA_DIR}} ]]"
+        msg: Specify the DATA_DIR in the .env file
+      - sh: "[[ {{.SAVE_DIR}} ]]"
+        msg: Specify the SAVE_DIR in the .env file
+      - sh: "[[ {{.WANDB_ENTITY}} ]]"
+        msg: Specify the WANDB_ENTITY in the .env file
+      - sh: "[[ {{.WANDB_PROJECT}} ]]"
+        msg: Specify the WANDB_PROJECT in the .env file
+      - sh: "[ {{.NUM_GPUS}} -gt 0 ]"
+        msg: Use at least 1 GPU to train the model
+      - sh: '[ "{{.EXPERIMENT}}" ]'
+        msg: Specify a name for the EXPERIMENT
+      - sh: '[ "{{.CONFIG_DIR_TD}}/{{.EXPERIMENT}}.yaml" ]'
+        msg: The yaml does not exist
+    vars:
+      BASE_UPDATE_FREQ:
+        sh: |
+            cat {{.CONFIG_DIR_TD}}/{{.EXPERIMENT}}.yaml | grep "update_freq" | awk -F'[][]' '{print $2}'
+      NUM_GPUS:
+        sh: |
+            if [ "$CUDA_VISIBLE_DEVICES" ]; then
+              echo $CUDA_VISIBLE_DEVICES | sed 's/[^,]//g' | wc -c
+            else
+              echo 0
+            fi
+      UPDATE_FREQ:
+        sh: |
+            if [ {{.NUM_GPUS}} -gt 0 ]; then
+              echo $(( {{.BASE_UPDATE_FREQ}} / {{.NUM_GPUS}} ))
+            else
+              echo {{.BASE_UPDATE_FREQ}}
+            fi
+    cmds:
+      - cmd: echo "Running experiment {{.EXPERIMENT}}"
+        silent: true
+      - cmd: echo "Running experiment's file {{.CONFIG_DIR_TD}}/{{.EXPERIMENT}}.yaml"
+        silent: true
+
+      - cmd: |
+              WANDB_NAME={{.EXPERIMENT}} \
+              fairseq-hydra-train \
+              --config-dir {{.CONFIG_DIR_TD}} \
+              --config-name {{.EXPERIMENT}}.yaml \
+              optimization.update_freq=[{{.UPDATE_FREQ}}]
+        silent: true
+
+  generate:
+    preconditions:
+      - sh: "[[ -d {{.DATA_DIR}} ]]"
+        msg: Specify the DATA_ROOT in the .env file
+      - sh: "[[ {{.SAVE_DIR}} ]]"
+        msg: Specify the SAVE_DIR in the .env file
+      - sh: '[ "{{.EXPERIMENT}}" ]'
+        msg: Specify a name for the EXPERIMENT
+      - sh: '[ "{{.CKPT}}" ]'
+        msg: Specify a CKPT
+      - sh: '[ "{{.SUBSET}}" ]'
+        msg: Specify a SUBSET
+      - sh: '[ "{{.SPM_MODEL}}" ]'
+        msg: Specify a SPM_MODEL
+
+    cmds:
+      - cmd: echo "Generating outputs for '{{.EXPERIMENT}}' ({{.SUBSET}}) with checkpoint '{{.CKPT}}'"
+        silent: true
+
+      - cmd: |
+              mkdir -p $(dirname "{{.OUT_FILE}}")
+              fairseq-generate {{.I3D_DIR}} \
+              --path {{.CKPT_FILE}} \
+              --task sign_to_text \
+              --gen-subset {{.SUBSET}} \
+              --seed {{.SEED}} \
+              --batch-size 32 \
+              --scoring sacrebleu \
+              --max-source-positions {{.MAX_SOURCE_POSITIONS}} \
+              --max-target-positions {{.MAX_TARGET_POSITIONS}} \
+              --max-tokens {{.MAX_TOKENS}} \
+              --beam {{.BEAM_SIZE}} \
+              --sacrebleu \
+              --sacrebleu-tokenizer 13a \
+              --bpe sentencepiece \
+              --sentencepiece-model {{.SPM_MODEL}} \
+              --skip-invalid-size-inputs-valid-test > {{.OUT_FILE}}
+        silent: false
+    vars:
+      SEED: 48151623
+      MAX_SOURCE_POSITIONS: 1024
+      MAX_TARGET_POSITIONS: 1024
+      MAX_TOKENS: 16_000
+      BEAM_SIZE: 5
+      CKPT_FILE:
+        sh: echo {{.SAVE_DIR}}/{{.EXPERIMENT}}/ckpts/{{.CKPT}}
+      OUT_FILE:
+        sh: tmp={{.CKPT_FILE}}; echo "{{.SAVE_DIR}}/{{.EXPERIMENT}}/generates/{{.SUBSET}}/$(basename ${tmp::-3}).out"
+
+  generate_no_target:
+    preconditions:
+      - sh: "[[ -d {{.DATA_DIR}} ]]"
+        msg: Specify the DATA_ROOT in the .env file
+      - sh: "[[ {{.SAVE_DIR}} ]]"
+        msg: Specify the SAVE_DIR in the .env file
+      - sh: '[ "{{.EXPERIMENT}}" ]'
+        msg: Specify a name for the EXPERIMENT
+      - sh: '[ "{{.CKPT}}" ]'
+        msg: Specify a CKPT
+      - sh: '[ "{{.SUBSET}}" ]'
+        msg: Specify a SUBSET
+      - sh: '[ "{{.SPM_MODEL}}" ]'
+        msg: Specify a SPM_MODEL
+
+    cmds:
+      - cmd: echo "Generating outputs for '{{.EXPERIMENT}}' ({{.SUBSET}}) with checkpoint '{{.CKPT}}'"
+        silent: true
+
+      - cmd: |
+              mkdir -p $(dirname "{{.OUT_FILE}}")
+              fairseq-generate {{.DATA_DIR}} \
+              --path {{.CKPT_FILE}} \
+              --task sign_to_text \
+              --gen-subset {{.SUBSET}} \
+              --seed {{.SEED}} \
+              --max-source-positions {{.MAX_SOURCE_POSITIONS}} \
+              --max-target-positions {{.MAX_TARGET_POSITIONS}} \
+              --max-tokens {{.MAX_TOKENS}} \
+              --beam {{.BEAM_SIZE}} \
+              --bpe sentencepiece \
+              --sentencepiece-model {{.DATA_DIR}}/{{.SPM_MODEL}} > {{.OUT_FILE}}
+        silent: true
+    vars:
+      SEED: 48151623
+      MAX_SOURCE_POSITIONS: 1024
+      MAX_TARGET_POSITIONS: 1024
+      MAX_TOKENS: 80_000
+      BEAM_SIZE: 5
+      CKPT_FILE:
+        sh: echo {{.SAVE_DIR}}/{{.EXPERIMENT}}/ckpts/{{.CKPT}}
+      OUT_FILE:
+        sh: tmp={{.CKPT_FILE}}; echo "{{.SAVE_DIR}}/{{.EXPERIMENT}}/generates/{{.SUBSET}}/$(basename ${tmp::-3}).out"

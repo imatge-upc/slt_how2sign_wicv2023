@@ -1,0 +1,67 @@
+# @package _group_
+
+common:
+  fp16: false
+  log_interval: 2
+  wandb_project: SL_TD
+
+task:
+  _name: SL_topic_detection
+  feats_type: ???
+  body_parts: upperbody,lefthand,righthand
+  feat_dims: "0,1,2"
+  data: ???
+  dict_path: ???
+  normalize: true
+  min_source_positions: 150
+  max_source_positions: 250000
+  max_target_positions: 1
+
+dataset:
+  num_workers: 0
+  max_tokens: 20000  # batch_size is inferred from max_tokens, as the max num of sequences that can be fit in max_tokens
+  skip_invalid_size_inputs_valid_test: true
+  train_subset: train
+  valid_subset: val
+  validate_interval_updates: 600
+
+criterion:
+  _name: label_smoothed_cross_entropy
+
+optimization:
+  max_update: 5500 #####
+  lr: [0.00001]
+  update_freq: [1]
+
+optimizer:
+  _name: adam
+  adam_betas: [0.9, 0.998]
+  weight_decay: 1e-1
+
+lr_scheduler:
+  _name: reduce_lr_on_plateau
+  lr_shrink: 0.5
+  lr_patience: 8
+  warmup_updates: 500  # 500
+
+checkpoint:
+  keep_last_epochs: 1
+  best_checkpoint_metric: acc
+  maximize_best_checkpoint_metric: true
+  save_dir: ???
+
+model:
+  _name: SL_topic_detection_transformer
+  subsample_input: true
+  apply_mask: false
+  dropout: 0.1
+  feature_grad_mult: 0.0
+  encoder_embed_dim: 512
+  encoder_ffn_embed_dim: 512
+  freeze_finetune_updates: 0
+  encoder_attention_heads: 4
+  encoder_layers: 4
+
+bpe:
+  _name: sentencepiece
+  sentencepiece_model: ???

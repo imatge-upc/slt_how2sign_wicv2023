@@ -1,0 +1,47 @@
+# @package _group_
+name: "Sweep SL TD transformer spot_align"
+project: SLTopicDetection
+program: fairseq-hydra-train
+
+method: grid #"grid", "random", "bayes"
+
+metric:
+  goal: maximize
+  name: val/acc
+
+parameters:
+  task.feats_type:
+    values: ['spot_align']
+  dataset.max_tokens:
+    values: [20000]
+  task.normalize:
+    values: [true]
+  model.subsample_input:
+    values: [false]
+  model.encoder_layers:
+    values: [1, 2, 3]
+  model.encoder_attention_heads:
+    values: [4, 8]
+  model.encoder_ffn_embed_dim:
+    values: [256, 512]
+  model.encoder_embed_dim:
+    values: [256, 512]
+  model.dropout:
+    values: [0.1]
+  optimization.lr:
+    values: [[0.0005], [0.001], [0.01],  [0.1]]
+  optimizer.weight_decay:
+    values: [1e-3]
+
+
+command:
+  - ${program}
+  - ${args_no_hyphens}
+  - "task.data=../../../../../../data/How2Sign/spot_align"
+  - "task.dict_path=../../../../../../data/How2Sign/i3d/categoryName_categoryID.csv"
+  - "bpe.sentencepiece_model=/mnt/gpid08/users/alvaro.budria/pose2vec/data/How2Sign/text/spm_unigram8000_en.model"
+  - "--config-dir"
+  - "./config"
+  - "--config-name"
+  - "baseline_transformer"
+
