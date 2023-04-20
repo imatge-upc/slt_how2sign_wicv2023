@@ -115,4 +115,4 @@ year = {2023}
 - Some scripts from this repository use the GNU Parallel software.
   > Tange, Ole. (2022). GNU Parallel 20220722 ('Roe vs Wade'). Zenodo. https://doi.org/10.5281/zenodo.6891516
 
-Check the original [Fairseq README](https://github.com/mt-upc/fairseq/blob/wicv2023-slt/README_FAIRSEQ.md) to learn how to use this toolkit.
+Check the original [Fairseq README](https://https://github.com/imatge-upc/slt_how2sign_wicv2023/README_FAIRSEQ.md) to learn how to use this toolkit.
