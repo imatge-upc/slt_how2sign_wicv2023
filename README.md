@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 <p align="center">
   <img src="docs/fairseq_logo.png" width="150">
   <br />
@@ -9,6 +10,12 @@
   <a href="https://fairseq.readthedocs.io/en/latest/?badge=latest"><img alt="Documentation Status" src="https://readthedocs.org/projects/fairseq/badge/?version=latest" /></a>
   <a href="https://app.circleci.com/pipelines/github/facebookresearch/fairseq/"><img alt="CicleCI Status" src="https://circleci.com/gh/facebookresearch/fairseq.svg?style=shield" /></a>
 </p>
+=======
+# Sign Language Translation for Instructional Videos
+[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/sign-language-translation-from-instructional/sign-language-translation-on-how2sign)](https://paperswithcode.com/sota/sign-language-translation-on-how2sign?p=sign-language-translation-from-instructional)
+
+Accepted to CVPR WiCV 2023 [arXiv](https://imatge-upc.github.io/)
+>>>>>>> 7310fb5db99b016f51cd82658f10f87b84f3ca20
 
 --------------------------------------------------------------------------------
 
@@ -118,6 +125,7 @@ We provide reference implementations of various sequence modeling papers:
 
 </p></details>
 
+<<<<<<< HEAD
 ### Features:
 
 * multi-GPU training on one machine or across multiple machines (data and model parallel)
@@ -239,3 +247,7 @@ Please cite as:
   year = {2019},
 }
 ```
+=======
+## Contact
+For questions and suggestions use the issues section or send an e-mail to laia.tarres@upc.edu
+>>>>>>> 7310fb5db99b016f51cd82658f10f87b84f3ca20
