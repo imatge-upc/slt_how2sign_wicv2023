@@ -8,7 +8,7 @@ All the scripts are located inside examples/sign_language/scripts.
 ## First steps
 Clone this repository, create the conda environment and install Fairseq:
 ```bash
-git clone -b slt_how2sign_wicv2023 git@github.com:mt-upc/fairseq.git
+git clone git@github.com:imatge-upc/slt_how2sign_wicv2023.git
 cd fairseq
 
 conda env create -f ./examples/sign_language/environment.yml
