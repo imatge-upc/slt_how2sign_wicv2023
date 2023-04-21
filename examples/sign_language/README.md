@@ -108,11 +108,11 @@ Laia Tarres, Gerard I. Gallego, Amanda Duarte, Jordi Torres and Xavier Giro-i-Ni
 @InProceedings{slt-how2sign-wicv2023,
 author = {Tarres, Laia and Gallego, Gerard and Duarte, Amanda and Torres, Jordi and Giro-i-Nieto, Xavier},
 title = {Sign Language Translation from Instructional Videos},
-booktitle = {Workshops on the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
+booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) Workshops},
 year = {2023}
 }
 </pre>
 - Some scripts from this repository use the GNU Parallel software.
   > Tange, Ole. (2022). GNU Parallel 20220722 ('Roe vs Wade'). Zenodo. https://doi.org/10.5281/zenodo.6891516
 
-Check the original [Fairseq README](https://github.com/mt-upc/fairseq/blob/wicv2023-slt/README_FAIRSEQ.md) to learn how to use this toolkit.
+Check the original [Fairseq README](https://github.com/imatge-upc/slt_how2sign_wicv2023/blob/wicv23/README_fairseq.md) to learn how to use this toolkit.
