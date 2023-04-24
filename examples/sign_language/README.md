@@ -102,13 +102,13 @@ We are currently updating the weights of our best-performing model and I3D featu
 ## Citations
 - If you find this work useful, please consider citing:
 <i>
-Laia Tarres, Gerard I. Gallego, Amanda Duarte, Jordi Torres and Xavier Giro-i-Nieto. "Sign Language Translation from Instructional Videos", WCVPR 2023.
+Laia Tarrés, Gerard I. Gallego, Amanda Duarte, Jordi Torres and Xavier Giró-i-Nieto. "Sign Language Translation from Instructional Videos", WCVPR 2023.
 </i>
 <pre>
 @InProceedings{slt-how2sign-wicv2023,
-author = {Tarres, Laia and Gallego, Gerard and Duarte, Amanda and Torres, Jordi and Giro-i-Nieto, Xavier},
+author = {Laia Tarrés and Gerard I. Gállego and Amanda Duarte and Jordi Torres and Xavier Giró-i-Nieto},
 title = {Sign Language Translation from Instructional Videos},
-booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) Workshops},
+booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) :Workshops},
 year = {2023}
 }
 </pre>
