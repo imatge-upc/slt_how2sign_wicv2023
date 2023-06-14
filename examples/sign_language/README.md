@@ -24,24 +24,36 @@ sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b path-to-env/
 ```
 
 ## Downloading the data
-We are working on uploading the I3D keypoints and .tsv to the dataverse. Once you have them, they should follow this structure:
+The I3D keypoints and .tsv are in [the dataverse](https://dataverse.csuc.cat/dataset.xhtml?persistentId=doi%3A10.34810%2Fdata693). Once you have them, they should follow this structure:
 ```
 ├── data/
-│   ├── train/
-│   │   ├── --7E2sU6zP4_10-5-rgb_front.npy
-│   │   ├── --7E2sU6zP4_11-5-rgb_front.npy
-│   │   └── ...
-│   ├── val/
-│   │   ├── -d5dN54tH2E_0-1-rgb_front.npy
-│   │   ├── -d5dN54tH2E_1-1-rgb_front.npy
-│   │   └── ...
-│   └── test/
-│       ├── -fZc293MpJk_0-1-rgb_front.npy
-│       ├── -fZc293MpJk_1-1-rgb_front.npy
-│       └── ...
-├── cvpr23.fairseq.i3d.train.how2sign.tsv
-├── cvpr23.fairseq.i3d.val.how2sign.tsv
-└── cvpr23.fairseq.i3d.test.how2sign.tsv
+│   └── how2sign/
+│       ├── i3d_features/
+│       │   ├── cvpr23.fairseq.i3d.test.how2sign.tsv
+│       │   ├── cvpr23.fairseq.i3d.train.how2sign.tsv
+│       │   ├── cvpr23.fairseq.i3d.val.how2sign.tsv
+│       │   ├── train/
+│       │   │   ├── --7E2sU6zP4_10-5-rgb_front.npy
+│       │   │   ├── --7E2sU6zP4_11-5-rgb_front.npy
+│       │   │   └── ...
+│       │   ├── val/
+│       │   │   ├── -d5dN54tH2E_0-1-rgb_front.npy
+│       │   │   ├── -d5dN54tH2E_1-1-rgb_front.npy
+│       │   │   └── ...
+│       │   └── test/
+│       │       ├── -fZc293MpJk_0-1-rgb_front.npy
+│       │       ├── -fZc293MpJk_1-1-rgb_front.npy
+│       │       └── ...
+│       └── vocab/
+│           ├── cvpr23.train.how2sign.unigram7000_lowercased.model 
+│           ├── cvpr23.train.how2sign.unigram7000_lowercased.txt
+│           └── cvpr23.train.how2sign.unigram7000_lowercased.vocab
+└── final_models/
+    └── baseline_6_3_dp03_wd_2/
+        ├── ckpts
+            └── checkpoint.best_reduced_sacrebleu_3.5401.pt 
+        ├── generates
+        └── hydra_outputs
 ```
 
 Each of the folder partitions contain the corresponding I3D features in .npy files, provided by [previous work](https://imatge-upc.github.io/sl_retrieval/), that correspond to each How2Sign sentence.  
@@ -62,7 +74,8 @@ VOCAB_SIZE: 7000
 FEATS: i3d
 PARTITION: train
 ```
-As you have read in the paper, we are using rBLEU as a metric. The blacklist can be found in: `FAIRSEQ_ROOT/examples/sign_language/scripts/blacklisted_words.txt`
+To be able to replicate our results, we provide our trained models, find that in `data/how2sign/vocab`.
+As explained in the paper, we are using rBLEU as a metric. The blacklist can be found in: `FAIRSEQ_ROOT/examples/sign_language/scripts/blacklisted_words.txt`
 
 ## Training 
 As per fairseq documentation, we work with config files that can be found in `CONFIG_DIR = FAIRSEQ_ROOT/examples/sign_language/config/wicv_cvpr23/i3d_best`. Select the name of the .yaml files as the experiment name desired. For the final model, select `baseline_6_3_dp03_wd_2`. As EXPERIMENT_NAME and run:
@@ -96,8 +109,7 @@ Script `python scripts/analyze_fairseq_generate.py` analizes raw data and output
 ```bash
 python scripts/analyze_fairseq_generate.py --generates-dir path/to/generates --vocab-dir path/to/vocab --experiment baseline_6_3_dp03_wd_2 --partition test --checkpoint checkpoint_best
 ```
-
-We are currently updating the weights of our best-performing model and I3D features to dataverse. They will be available soon! 
+The weigts of our best-performing model can be found on [the dataverse](https://dataverse.csuc.cat/dataset.xhtml?persistentId=doi%3A10.34810%2Fdata693)
 
 ## Citations
 - If you find this work useful, please consider citing:
